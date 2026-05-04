@@ -116,10 +116,13 @@ def _format_article_item(index: int, article: dict) -> str:
     title = article.get("title", "")
     url = article.get("url", "")
     source = article.get("source", "")
+    rank = article.get("rank")
     reason = article.get("reason", "")
     takeaway = article.get("takeaway", "")
 
-    line = f"{index}. [{title}]({url})\n" if url else f"{index}. {title}\n"
+    rank_text = f" · #{rank}" if rank else ""
+    source_text = f"（{source}{rank_text}）" if source else ""
+    line = f"{index}. [{title}]({url}){source_text}\n" if url else f"{index}. {title}{source_text}\n"
     if reason:
         line += f"   - 看点：{reason}\n"
     if takeaway:

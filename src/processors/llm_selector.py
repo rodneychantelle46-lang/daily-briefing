@@ -25,9 +25,10 @@ def select_articles(
         return _fallback_select(articles, count)
 
     # 限制候选池，避免把几百上千条旧博客塞给模型。
-    candidate_articles = articles[:80]
+    # 同时做来源均衡：TrendRadar/NewsNow 热榜源更广，但不能让某一个平台刷屏。
+    candidate_articles = _prepare_candidates(articles, limit=80, per_source_first_pass=6)
     article_list = "\n".join(
-        f"{i+1}. [{a['title']}]({a['url']}) — {a.get('source', '')} — {a.get('published_at', '')[:10]}"
+        _format_candidate_line(i + 1, a)
         for i, a in enumerate(candidate_articles)
     )
 
@@ -40,8 +41,9 @@ def select_articles(
 
 选择标准：
 - 影响力：对行业或社会有重大影响
-- 时效性：最新最热的动态优先
-- 信息增量：能带来新知识或新视角{keyword_hint}
+- 时效性：最新最热的动态优先，热榜高排名可加权但不要被娱乐噪音带跑
+- 信息增量：能带来新知识或新视角
+- 来源多样：尽量避免同一平台/同一话题刷屏{keyword_hint}
 
 输出要求：
 - 不要只复制标题，要补一条短看点和一条短判断
@@ -81,6 +83,50 @@ def select_articles(
         return _fallback_select(articles, count)
 
 
+def _prepare_candidates(articles: list[dict], limit: int = 80, per_source_first_pass: int = 6) -> list[dict]:
+    def priority(article: dict) -> tuple:
+        source_type_rank = 0 if article.get("source_type") == "hotlist" else 1
+        rank = article.get("rank")
+        rank_value = rank if isinstance(rank, int) else 999
+        return (source_type_rank, rank_value)
+
+    sorted_articles = sorted(articles, key=priority)
+    buckets: dict[str, list[dict]] = {}
+    for article in sorted_articles:
+        buckets.setdefault(article.get("source", "未知来源"), []).append(article)
+
+    selected: list[dict] = []
+    seen_urls: set[str] = set()
+
+    for source_articles in buckets.values():
+        for article in source_articles[:per_source_first_pass]:
+            url = article.get("url", "")
+            if url and url not in seen_urls:
+                selected.append(article)
+                seen_urls.add(url)
+                if len(selected) >= limit:
+                    return selected
+
+    for article in sorted_articles:
+        url = article.get("url", "")
+        if url and url not in seen_urls:
+            selected.append(article)
+            seen_urls.add(url)
+            if len(selected) >= limit:
+                break
+    return selected
+
+
+def _format_candidate_line(index: int, article: dict) -> str:
+    source = article.get("source", "")
+    date = article.get("published_at", "")[:10]
+    rank = article.get("rank")
+    rank_text = f"排行#{rank}" if rank else ""
+    source_type = "热榜" if article.get("source_type") == "hotlist" else "RSS"
+    meta = " — ".join(part for part in [source, source_type, rank_text, date] if part)
+    return f"{index}. [{article['title']}]({article['url']}) — {meta}"
+
+
 def _hydrate_selection(selected: list[dict], articles: list[dict]) -> list[dict]:
     by_url = {a.get("url", ""): a for a in articles}
     hydrated = []
@@ -92,6 +138,8 @@ def _hydrate_selection(selected: list[dict], articles: list[dict]) -> list[dict]
             "url": url or original.get("url", ""),
             "source": original.get("source", item.get("source", "")),
             "published_at": original.get("published_at", ""),
+            "rank": original.get("rank"),
+            "source_type": original.get("source_type", ""),
             "reason": item.get("reason", "").strip(),
             "takeaway": item.get("takeaway", "").strip(),
         })
@@ -108,6 +156,8 @@ def _fallback_select(articles: list[dict], count: int) -> list[dict]:
             "url": a["url"],
             "source": source,
             "published_at": a.get("published_at", ""),
+            "rank": a.get("rank"),
+            "source_type": a.get("source_type", ""),
             "reason": f"来自{source}，可快速扫一眼" if source else "可快速扫一眼",
             "takeaway": "模型不可用时的保底选稿，优先看标题判断",
         })

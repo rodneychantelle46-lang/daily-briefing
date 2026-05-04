@@ -12,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.fetchers.rss_fetcher import fetch_rss
 from src.fetchers.zhihu_fetcher import fetch_zhihu_hot
+from src.fetchers.newsnow_fetcher import fetch_hotlists
 from src.fetchers.weather_fetcher import fetch_weather
 from src.fetchers.quote_fetcher import fetch_quote
 from src.fetchers.podcast_fetcher import fetch_podcast
@@ -110,13 +111,19 @@ def main():
     general_sources = rss_sources.get("general", [])
     general_articles = fetch_rss(general_sources)
 
-    # 2. 抓取知乎热榜
-    logger.info("--- 步骤 2: 抓取知乎热榜 ---")
-    zhihu_articles = fetch_zhihu_hot()
-    all_articles = filter_recent_articles(general_articles + zhihu_articles, max_age_days=14)
+    # 2. 抓取热榜平台：借鉴 TrendRadar 的 NewsNow 聚合源，只取轻量抓取能力
+    logger.info("--- 步骤 2: 抓取多平台热榜 ---")
+    hotlist_articles = fetch_hotlists(config.get("hotlists", {}))
 
-    # 3. 抓取兴趣领域 RSS
-    logger.info("--- 步骤 3: 抓取兴趣领域 RSS ---")
+    # 3. 抓取知乎热榜（保留原生兜底；NewsNow 热榜中默认不重复配置知乎）
+    logger.info("--- 步骤 3: 抓取知乎热榜 ---")
+    zhihu_articles = fetch_zhihu_hot()
+
+    # 热榜是高时效信号，放在候选池前面，避免被长 RSS 列表淹没。
+    all_articles = filter_recent_articles(hotlist_articles + zhihu_articles + general_articles, max_age_days=14)
+
+    # 4. 抓取兴趣领域 RSS
+    logger.info("--- 步骤 4: 抓取兴趣领域 RSS ---")
     interest_sources = {}
     for key in rss_sources:
         if key not in ("general", "podcast"):
@@ -125,15 +132,15 @@ def main():
     for key, sources in interest_sources.items():
         interest_articles[key] = filter_recent_articles(fetch_rss(sources), max_age_days=30)
 
-    # 4. 去重过滤
-    logger.info("--- 步骤 4: 去重过滤 ---")
+    # 5. 去重过滤
+    logger.info("--- 步骤 5: 去重过滤 ---")
     seen_data = load_seen()
     all_articles = filter_unseen(all_articles, seen_data)
     for key in interest_articles:
         interest_articles[key] = filter_unseen(interest_articles[key], seen_data)
 
-    # 5. GPT 选稿
-    logger.info("--- 步骤 5: GPT 选稿 ---")
+    # 6. GPT 选稿
+    logger.info("--- 步骤 6: GPT 选稿 ---")
     llm_config = config.get("llm", {})
     model = llm_config.get("model", "gpt-5.5")
     api_key = llm_config.get("api_key", "")
@@ -185,7 +192,7 @@ def main():
     bilibili_videos = []
     bili_config = config.get("bilibili", {})
     if bili_config:
-        logger.info("--- 步骤 5b: B站热门视频 ---")
+        logger.info("--- 步骤 6b: B站热门视频 ---")
         bili_count = bili_config.get("count", 5)
         bili_mode = bili_config.get("mode", "popular")
         if bili_mode == "popular":
@@ -197,14 +204,14 @@ def main():
         bilibili_videos = bili_pool[:bili_count]
 
     # 6. 先暂存待记录条目；飞书发送成功后再真正落去重，避免“没发出去却已标记已读”。
-    logger.info("--- 步骤 6: 准备去重状态 ---")
+    logger.info("--- 步骤 7: 准备去重状态 ---")
     all_selected = list(general_top5)
     for news_list in interest_top5.values():
         all_selected.extend(news_list)
     all_selected.extend(bilibili_videos)
 
     # 7. 天气
-    logger.info("--- 步骤 7: 获取天气 ---")
+    logger.info("--- 步骤 8: 获取天气 ---")
     city = config.get("user", {}).get("city", "鼓楼")
     weather_cfg = config.get("weather", {})
     weather = fetch_weather(
@@ -214,16 +221,16 @@ def main():
     )
 
     # 8. 每日一句
-    logger.info("--- 步骤 8: 每日一句 ---")
+    logger.info("--- 步骤 9: 每日一句 ---")
     quote = fetch_quote()
 
     # 9. 播客推荐
-    logger.info("--- 步骤 9: 播客推荐 ---")
+    logger.info("--- 步骤 10: 播客推荐 ---")
     podcast_sources = rss_sources.get("podcast", [])
     podcast = fetch_podcast(podcast_sources)
 
     # 10. 组装飞书卡片
-    logger.info("--- 步骤 10: 组装飞书卡片 ---")
+    logger.info("--- 步骤 11: 组装飞书卡片 ---")
     date_str = datetime.now().strftime("%Y年%m月%d日")
     card = build_morning_card(
         general_news=general_top5,
@@ -239,7 +246,7 @@ def main():
     write_card_artifact(card, date_str)
 
     # 11. 推送
-    logger.info("--- 步骤 11: 飞书推送 ---")
+    logger.info("--- 步骤 12: 飞书推送 ---")
     feishu_config = config.get("publisher", {}).get("feishu", {})
     sent = send_feishu_card(card, feishu_config)
     if not sent:
@@ -247,7 +254,7 @@ def main():
         sys.exit(1)
 
     # 12. 记录已推送文章
-    logger.info("--- 步骤 12: 记录已推送 ---")
+    logger.info("--- 步骤 13: 记录已推送 ---")
     mark_seen(all_selected, seen_data)
     seen_data = cleanup_old(seen_data, config.get("dedup", {}).get("retention_days", 7))
     save_seen(seen_data)

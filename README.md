@@ -7,7 +7,7 @@
 ## 功能
 
 ### 早报（每日 7:20，北京时间）
-- **全行业资讯 ×5** — 从 36氪、虎嗅、少数派等 RSS 源 + 知乎热榜抓取，GPT 智能选稿
+- **全行业资讯 ×5** — RSS 源 + NewsNow 多平台热榜 + 知乎热榜，GPT 智能选稿
 - **兴趣领域资讯 ×5** — 按你配置的关键词筛选（如 AI、企业招聘）
 - **播客推荐** — 小宇宙最新单集 + 收听链接
 - **天气** — 和风天气 API
@@ -52,6 +52,8 @@ interests:
 
 编辑 `config/rss_sources.yaml` 添加/删除 RSS 源。
 
+如需调整热榜平台，编辑 `config/config.yaml` 的 `hotlists.sources`。当前借鉴 TrendRadar 的 NewsNow 聚合思路，默认启用今日头条、百度、微博、澎湃、华尔街见闻、财联社、凤凰网、抖音、B站热搜；没有引入 TrendRadar 的数据库、MCP、多渠道推送等重型模块。
+
 ### 4. 手动测试
 
 在 GitHub Actions 页面，手动触发 `Morning Briefing` 或 `Afternoon Briefing` 工作流。
@@ -73,6 +75,7 @@ daily-briefing/
 ├── src/
 │   ├── fetchers/            # 数据获取
 │   │   ├── rss_fetcher.py
+│   │   ├── newsnow_fetcher.py
 │   │   ├── zhihu_fetcher.py
 │   │   ├── weather_fetcher.py
 │   │   ├── quote_fetcher.py
@@ -124,6 +127,7 @@ python src/afternoon.py
 - **Python 3.11+**
 - **OpenAI 兼容模型** — 选稿 + 内容生成
 - **feedparser** — RSS 解析
+- **NewsNow-compatible API** — 多平台热榜聚合
 - **GitHub Actions** — 定时任务
 - **飞书应用 / Webhook** — 消息推送
 

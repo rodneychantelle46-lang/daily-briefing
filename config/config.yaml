@@ -6,6 +6,43 @@ interests:
   - name: "AI"
     keywords: ["人工智能", "大模型", "LLM", "AI Agent", "GPT", "深度学习", "机器学习", "Claude", "OpenAI", "DeepSeek"]
 
+hotlists:
+  enabled: true
+  # 借鉴 TrendRadar：接入 NewsNow 聚合热榜，但只保留轻量抓取层。
+  # 不引入它的数据库、MCP、多渠道推送和复杂调度，避免把晨报搞成重型系统。
+  api_url: "https://newsnow.busiyi.world/api/s"
+  max_per_source: 10
+  request_interval_ms: 350
+  max_retries: 2
+  sources:
+    - id: "toutiao"
+      name: "今日头条"
+      category: "综合热榜"
+    - id: "baidu"
+      name: "百度热搜"
+      category: "综合热榜"
+    - id: "weibo"
+      name: "微博热搜"
+      category: "社交热榜"
+    - id: "thepaper"
+      name: "澎湃新闻"
+      category: "新闻"
+    - id: "wallstreetcn-hot"
+      name: "华尔街见闻"
+      category: "财经"
+    - id: "cls-hot"
+      name: "财联社热门"
+      category: "财经"
+    - id: "ifeng"
+      name: "凤凰网"
+      category: "新闻"
+    - id: "douyin"
+      name: "抖音热榜"
+      category: "短视频热榜"
+    - id: "bilibili-hot-search"
+      name: "B站热搜"
+      category: "视频热榜"
+
 bilibili:
   name: "B站热门"
   mode: "popular"

@@ -2,6 +2,8 @@ import json
 import os
 from src.utils.llm_client import chat_completion
 from src.utils.logger import get_logger
+from src.utils.source_quality import source_scores
+from src.utils.topic_cluster import cluster_related_articles
 
 logger = get_logger("llm_selector")
 
@@ -14,19 +16,22 @@ def select_articles(
     model: str = "gpt-5.5",
     api_key: str = None,
     base_url: str = None,
+    source_quality: dict = None,
 ) -> list[dict]:
     if not articles:
         logger.warning("没有文章可供选择")
         return []
 
     key = api_key or os.getenv("OPENAI_API_KEY", "")
+    # 先做跨平台同话题合并，再限制候选池，避免把重复热搜和上千条旧博客塞给模型。
+    clustered_articles = cluster_related_articles(articles)
+
     if not key:
         logger.warning("OPENAI_API_KEY 未设置，使用降级策略（按时间倒序）")
-        return _fallback_select(articles, count)
+        return _fallback_select(clustered_articles, count)
 
-    # 限制候选池，避免把几百上千条旧博客塞给模型。
     # 同时做来源均衡：TrendRadar/NewsNow 热榜源更广，但不能让某一个平台刷屏。
-    candidate_articles = _prepare_candidates(articles, limit=80, per_source_first_pass=6)
+    candidate_articles = _prepare_candidates(clustered_articles, limit=80, per_source_first_pass=6, source_quality=source_quality)
     article_list = "\n".join(
         _format_candidate_line(i + 1, a)
         for i, a in enumerate(candidate_articles)
@@ -83,12 +88,21 @@ def select_articles(
         return _fallback_select(articles, count)
 
 
-def _prepare_candidates(articles: list[dict], limit: int = 80, per_source_first_pass: int = 6) -> list[dict]:
+def _prepare_candidates(
+    articles: list[dict],
+    limit: int = 80,
+    per_source_first_pass: int = 6,
+    source_quality: dict = None,
+) -> list[dict]:
+    scores = source_scores(source_quality or {})
+
     def priority(article: dict) -> tuple:
         source_type_rank = 0 if article.get("source_type") == "hotlist" else 1
         rank = article.get("rank")
         rank_value = rank if isinstance(rank, int) else 999
-        return (source_type_rank, rank_value)
+        quality = scores.get(article.get("source", ""), 0.85)
+        cluster_bonus = min(3, int(article.get("topic_cluster_size", 1)))
+        return (source_type_rank, -cluster_bonus, -quality, rank_value)
 
     sorted_articles = sorted(articles, key=priority)
     buckets: dict[str, list[dict]] = {}
@@ -123,7 +137,9 @@ def _format_candidate_line(index: int, article: dict) -> str:
     rank = article.get("rank")
     rank_text = f"排行#{rank}" if rank else ""
     source_type = "热榜" if article.get("source_type") == "hotlist" else "RSS"
-    meta = " — ".join(part for part in [source, source_type, rank_text, date] if part)
+    related_sources = article.get("related_sources") or []
+    related_text = f"多平台同热:{'/'.join(related_sources[:4])}" if len(related_sources) > 1 else ""
+    meta = " — ".join(part for part in [source, source_type, rank_text, related_text, date] if part)
     return f"{index}. [{article['title']}]({article['url']}) — {meta}"
 
 
@@ -140,6 +156,10 @@ def _hydrate_selection(selected: list[dict], articles: list[dict]) -> list[dict]
             "published_at": original.get("published_at", ""),
             "rank": original.get("rank"),
             "source_type": original.get("source_type", ""),
+            "related_sources": original.get("related_sources", []),
+            "related_urls": original.get("related_urls", []),
+            "topic_cluster_size": original.get("topic_cluster_size", 1),
+            "multi_source_label": original.get("multi_source_label", ""),
             "reason": item.get("reason", "").strip(),
             "takeaway": item.get("takeaway", "").strip(),
         })
@@ -158,6 +178,10 @@ def _fallback_select(articles: list[dict], count: int) -> list[dict]:
             "published_at": a.get("published_at", ""),
             "rank": a.get("rank"),
             "source_type": a.get("source_type", ""),
+            "related_sources": a.get("related_sources", []),
+            "related_urls": a.get("related_urls", []),
+            "topic_cluster_size": a.get("topic_cluster_size", 1),
+            "multi_source_label": a.get("multi_source_label", ""),
             "reason": f"来自{source}，可快速扫一眼" if source else "可快速扫一眼",
             "takeaway": "模型不可用时的保底选稿，优先看标题判断",
         })

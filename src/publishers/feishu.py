@@ -119,10 +119,17 @@ def _format_article_item(index: int, article: dict) -> str:
     rank = article.get("rank")
     reason = article.get("reason", "")
     takeaway = article.get("takeaway", "")
+    related_sources = article.get("related_sources") or []
+    multi_source_label = article.get("multi_source_label", "")
 
     rank_text = f" · #{rank}" if rank else ""
-    source_text = f"（{source}{rank_text}）" if source else ""
+    if multi_source_label:
+        source_text = f"（{multi_source_label}{rank_text}）"
+    else:
+        source_text = f"（{source}{rank_text}）" if source else ""
     line = f"{index}. [{title}]({url}){source_text}\n" if url else f"{index}. {title}{source_text}\n"
+    if len(related_sources) > 1:
+        line += f"   - 同热：{' / '.join(related_sources[:5])}\n"
     if reason:
         line += f"   - 看点：{reason}\n"
     if takeaway:

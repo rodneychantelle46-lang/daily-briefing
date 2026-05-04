@@ -1,7 +1,8 @@
+import json
 import os
 import sys
 import yaml
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -22,6 +23,24 @@ def load_config() -> dict:
         config = yaml.safe_load(f)
     _resolve_env(config)
     return config
+
+
+def write_afternoon_artifact(card: dict, tips: list[dict], github_repos: list[dict], date_str: str) -> Path:
+    artifacts_dir = PROJECT_ROOT / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"afternoon-card-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    path = artifacts_dir / filename
+    payload = {
+        "date": date_str,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "card": card,
+        "tips": tips,
+        "github_repos": github_repos,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    logger.info(f"午报卡片已保存到 artifact: {path}")
+    return path
 
 
 def _resolve_env(obj):
@@ -70,11 +89,15 @@ def main():
     logger.info("--- 步骤 5: 组装飞书卡片 ---")
     date_str = datetime.now().strftime("%Y年%m月%d日")
     card = build_afternoon_card(tips=tips, date_str=date_str, github_repos=repos)
+    write_afternoon_artifact(card, tips, repos or [], date_str)
 
     # 4. 推送
     logger.info("--- 步骤 6: 飞书推送 ---")
     feishu_config = config.get("publisher", {}).get("feishu", {})
-    send_feishu_card(card, feishu_config)
+    sent = send_feishu_card(card, feishu_config)
+    if not sent:
+        logger.error("飞书推送失败，午报任务按失败退出，防止 GitHub Actions 假成功")
+        sys.exit(1)
 
     logger.info("========== 午报完成 ==========")
 

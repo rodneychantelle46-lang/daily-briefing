@@ -21,6 +21,7 @@ from src.processors.llm_selector import select_articles
 from src.publishers.feishu import build_morning_card, send_feishu_card
 from src.utils.logger import get_logger
 from src.utils.dedup import load_seen, save_seen, filter_unseen, mark_seen, cleanup_old
+from src.utils.source_quality import load_source_quality, update_source_quality, summarize_source_counts
 
 logger = get_logger("morning")
 
@@ -53,6 +54,41 @@ def filter_recent_articles(articles: list[dict], max_age_days: int = 14) -> list
     if stale:
         logger.info(f"新鲜度过滤: 丢弃 {stale} 篇超过 {max_age_days} 天的旧内容")
     return recent
+
+
+def write_audit_artifact(
+    date_str: str,
+    fetched_articles: list[dict],
+    selected_articles: list[dict],
+    source_quality: dict,
+) -> Path:
+    artifacts_dir = PROJECT_ROOT / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"morning-audit-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    path = artifacts_dir / filename
+    payload = {
+        "date": date_str,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_by_source": summarize_source_counts(fetched_articles),
+        "selected_by_source": summarize_source_counts(selected_articles),
+        "selected": [
+            {
+                "title": a.get("title", ""),
+                "url": a.get("url", ""),
+                "source": a.get("source", ""),
+                "rank": a.get("rank"),
+                "related_sources": a.get("related_sources", []),
+                "reason": a.get("reason", ""),
+                "takeaway": a.get("takeaway", ""),
+            }
+            for a in selected_articles
+        ],
+        "source_quality": source_quality,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    logger.info(f"晨报候选审计已保存到 artifact: {path}")
+    return path
 
 
 def write_card_artifact(card: dict, date_str: str) -> Path:
@@ -105,6 +141,7 @@ def main():
     logger.info("========== 早报开始 ==========")
     config = load_config()
     rss_sources = load_rss_sources()
+    source_quality = load_source_quality()
 
     # 1. 抓取全行业 RSS
     logger.info("--- 步骤 1: 抓取 RSS ---")
@@ -147,7 +184,8 @@ def main():
     base_url = llm_config.get("base_url", "")
 
     general_top5 = select_articles(
-        all_articles, category="全行业", count=5, model=model, api_key=api_key, base_url=base_url
+        all_articles, category="全行业", count=5, model=model, api_key=api_key, base_url=base_url,
+        source_quality=source_quality,
     )
 
     # 排除已被全行业选中的 URL
@@ -185,7 +223,8 @@ def main():
 
         interest_top5[name] = select_articles(
             unique_pool, category=name, keywords=keywords, count=5,
-            model=model, api_key=api_key, base_url=base_url
+            model=model, api_key=api_key, base_url=base_url,
+            source_quality=source_quality,
         )
 
     # 5b. B站热门视频
@@ -209,6 +248,12 @@ def main():
     for news_list in interest_top5.values():
         all_selected.extend(news_list)
     all_selected.extend(bilibili_videos)
+
+    fetched_for_quality = list(all_articles)
+    for news_list in interest_articles.values():
+        fetched_for_quality.extend(news_list)
+    fetched_for_quality.extend(bilibili_videos)
+    source_quality = update_source_quality(fetched_for_quality, all_selected, source_quality)
 
     # 7. 天气
     logger.info("--- 步骤 8: 获取天气 ---")
@@ -244,6 +289,7 @@ def main():
     )
 
     write_card_artifact(card, date_str)
+    write_audit_artifact(date_str, fetched_for_quality, all_selected, source_quality)
 
     # 11. 推送
     logger.info("--- 步骤 12: 飞书推送 ---")

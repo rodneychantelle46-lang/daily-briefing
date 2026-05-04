@@ -54,6 +54,8 @@ interests:
 
 如需调整热榜平台，编辑 `config/config.yaml` 的 `hotlists.sources`。当前借鉴 TrendRadar 的 NewsNow 聚合思路，默认启用今日头条、百度、微博、澎湃、华尔街见闻、财联社、凤凰网、抖音、B站热搜；没有引入 TrendRadar 的数据库、MCP、多渠道推送等重型模块。
 
+早报会自动做跨平台同话题合并、来源质量评分，并上传候选审计 artifact，方便复盘“抓了什么、选了什么、为什么选”。
+
 ### 4. 手动测试
 
 在 GitHub Actions 页面，手动触发 `Morning Briefing` 或 `Afternoon Briefing` 工作流。
@@ -87,6 +89,8 @@ daily-briefing/
 │   │   └── feishu.py
 │   ├── utils/
 │   │   ├── dedup.py         # 去重
+│   │   ├── source_quality.py # 来源质量评分
+│   │   ├── topic_cluster.py  # 同话题聚类
 │   │   └── logger.py
 │   ├── morning.py           # 早报入口
 │   └── afternoon.py         # 午报入口

@@ -228,8 +228,14 @@ def build_afternoon_card(
     for i, tip in enumerate(tips):
         name = section_names[i] if i < len(section_names) else "知识卡片"
         icon = section_icons[i] if i < len(section_icons) else "📌"
+        title = tip.get("title", "")
+        try_this = tip.get("try_this", "")
         tip_md = f"**━━ {icon} {name} ━━**\n"
+        if title and title != name:
+            tip_md += f"**{title}**\n"
         tip_md += tip.get("content", "")
+        if try_this:
+            tip_md += f"\n\n**试一下**：{try_this}"
         links = tip.get("links", [])
         if links:
             tip_md += "\n\n📖 延伸阅读："
@@ -249,12 +255,20 @@ def build_afternoon_card(
             name = r.get("name", "")
             url = r.get("url", "")
             summary = r.get("summary", r.get("description", ""))
+            why = r.get("why", "")
+            use_case = r.get("use_case", "")
             lang = r.get("language", "")
             stars = r.get("stars_today", "")
+            score = r.get("quality_score")
             lang_tag = f"`{lang}` " if lang else ""
             stars_tag = f" ⭐ {stars}" if stars else ""
-            gh_md += f"\n**[{name}]({url})**{stars_tag}\n"
+            score_tag = f" · 质量 {score}" if score is not None else ""
+            gh_md += f"\n**[{name}]({url})**{stars_tag}{score_tag}\n"
             gh_md += f"{lang_tag}{summary}\n"
+            if why:
+                gh_md += f"- 看点：{why}\n"
+            if use_case:
+                gh_md += f"- 可用：{use_case}\n"
         elements.append({"tag": "markdown", "content": gh_md})
 
     card = {

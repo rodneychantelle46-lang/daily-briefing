@@ -13,42 +13,45 @@ HISTORY_PATH = PROJECT_ROOT / "data" / "generated_topics.json"
 TOPIC_CONFIGS = {
     "ai_tip": {
         "name": "AI 技巧",
-        "prompt": """生成一条简洁实用的 AI 使用技巧，100-150 字。
+        "prompt": """生成一条简洁实用的 AI 使用技巧，保持午报风格，120-180 字。
 要求：
-- 有具体方法，读者可以立即使用
-- 避免泛泛而谈，要有实操性
-- 用中文回答
+- 必须有一个具体场景，不要泛泛讲“提高效率”
+- 必须给一个可复制的小模板/句式/步骤
+- 读者今天下午就能试
+- 语气自然，别像培训课件
 
 避免重复这些已生成过的主题：{history}
 
 请严格返回 JSON 格式：
-{{"content": "技巧正文", "topic": "主题关键词"}}""",
+{{"title": "10字以内标题", "content": "技巧正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}""",
     },
     "psychology": {
         "name": "心理学/经济学技巧",
-        "prompt": """生成一条实用的心理学或经济学知识卡片，100-150 字。
+        "prompt": """生成一条实用的心理学或经济学知识卡片，保持午报风格，120-180 字。
 要求：
-- 包含一个具体的心理学效应或经济学原理
-- 解释它在日常生活或工作中的应用
-- 用中文回答
+- 只讲一个具体效应/原理
+- 先解释“它是什么”，再说“今天怎么用”
+- 必须带一个工作/学习/消费决策里的例子
+- 不要鸡汤，不要百科口吻
 
 避免重复这些已生成过的主题：{history}
 
 请严格返回 JSON 格式：
-{{"content": "知识卡片正文", "topic": "主题关键词"}}""",
+{{"title": "10字以内标题", "content": "知识卡片正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}""",
     },
     "brand_insight": {
         "name": "品牌洞察",
-        "prompt": """生成一条品牌或商业洞察，100-150 字。
+        "prompt": """生成一条品牌或商业洞察，保持午报风格，120-180 字。
 要求：
-- 分析一个知名品牌的策略、增长方法或创新点
-- 提炼出可复用的方法论
-- 用中文回答
+- 选择一个真实品牌/产品/商业现象
+- 讲清楚它用了什么策略，以及为什么有效
+- 提炼一条可迁移的方法论
+- 不要写成品牌公关稿
 
 避免重复这些已生成过的主题：{history}
 
 请严格返回 JSON 格式：
-{{"content": "洞察正文", "topic": "主题关键词"}}""",
+{{"title": "10字以内标题", "content": "洞察正文", "try_this": "可迁移的一步", "topic": "主题关键词"}}""",
     },
 }
 
@@ -67,7 +70,7 @@ def generate_tip(
 
     if not key:
         logger.warning("OPENAI_API_KEY 未设置，无法生成内容")
-        return {"content": f"今日{config['name']}暂不可用", "link": "", "topic": ""}
+        return _fallback_tip(config["name"])
 
     history = _load_history(topic_type)
     history_str = ", ".join(history[-30:]) if history else "无"
@@ -79,16 +82,20 @@ def generate_tip(
             model=model,
             api_key=key,
             base_url=base_url,
-            temperature=0.7,
-            max_tokens=500,
+            temperature=0.65,
+            max_tokens=700,
         )
         content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        result = json.loads(content)
+        result = _normalize_tip_result(json.loads(content), config["name"])
+        if _is_low_quality_tip(result):
+            logger.warning(f"午报内容质量偏低 ({topic_type})，使用降级文案")
+            return _fallback_tip(config["name"])
+
         topic_kw = result.get("topic", "")
         logger.info(f"午报内容生成成功 ({topic_type}): {topic_kw}")
         _save_history(topic_type, topic_kw)
 
-        # 搜索真实的知乎和小红书帖子作为延伸阅读
+        # 搜索真实的知乎和 B 站内容作为延伸阅读。
         links = []
         if topic_kw:
             zhihu = search_zhihu(topic_kw, count=1)
@@ -101,10 +108,10 @@ def generate_tip(
         return result
     except json.JSONDecodeError as e:
         logger.warning(f"GPT 返回 JSON 解析失败 ({e})")
-        return {"content": f"今日{config['name']}生成失败", "link": "", "topic": ""}
+        return _fallback_tip(config["name"])
     except Exception as e:
         logger.warning(f"GPT 调用失败 ({e})")
-        return {"content": f"今日{config['name']}生成失败", "link": "", "topic": ""}
+        return _fallback_tip(config["name"])
 
 
 def summarize_github_repos(
@@ -131,14 +138,14 @@ def summarize_github_repos(
 要求：
 - 先用一句话说清楚项目是什么、解决什么问题
 - 再加一句点评：为什么值得关注（技术亮点 / 应用场景 / 行业趋势）
+- use_case 要具体，说它适合怎么用或能借鉴什么
 - 语气自然，像在跟朋友推荐，不要太官方
-- 总字数控制在 40-80 字之间
 
 项目列表：
 {repo_list}
 
 请严格返回 JSON 数组，格式如下，不要返回任何其他内容：
-[{{"index": 1, "summary": "摘要正文"}}]
+[{{"index": 1, "summary": "摘要正文", "why": "为什么值得看", "use_case": "适合怎么用/借鉴"}}]
 
 返回 {len(repos)} 条，不多不少。"""
 
@@ -149,7 +156,7 @@ def summarize_github_repos(
             api_key=key,
             base_url=base_url,
             temperature=0.3,
-            max_tokens=1000,
+            max_tokens=1200,
         )
         content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         summaries = json.loads(content)
@@ -158,6 +165,8 @@ def summarize_github_repos(
                 idx = item.get("index", 0) - 1
                 if 0 <= idx < len(repos):
                     repos[idx]["summary"] = item.get("summary", "")
+                    repos[idx]["why"] = item.get("why", "")
+                    repos[idx]["use_case"] = item.get("use_case", "")
             logger.info(f"GitHub 项目摘要生成成功: {len(summaries)} 条")
         return repos
     except Exception as e:
@@ -165,6 +174,41 @@ def summarize_github_repos(
         for r in repos:
             r.setdefault("summary", r.get("description", ""))
         return repos
+
+
+def _normalize_tip_result(result: dict, section_name: str) -> dict:
+    content = str(result.get("content", "")).strip()
+    title = str(result.get("title", "")).strip()[:16]
+    topic = str(result.get("topic", title or section_name)).strip()
+    try_this = str(result.get("try_this", "")).strip()
+    return {
+        "title": title or section_name,
+        "content": content,
+        "try_this": try_this,
+        "topic": topic,
+    }
+
+
+def _is_low_quality_tip(result: dict) -> bool:
+    content = result.get("content", "")
+    banned = ["提升效率", "非常重要", "值得关注", "在当今", "随着技术发展", "可以帮助你"]
+    if len(content) < 60:
+        return True
+    if sum(1 for word in banned if word in content) >= 2:
+        return True
+    if not result.get("try_this"):
+        return True
+    return False
+
+
+def _fallback_tip(section_name: str) -> dict:
+    return {
+        "title": section_name,
+        "content": f"今日{section_name}生成失败，先跳过这块，不硬凑废话。",
+        "try_this": "等下一次自动生成；如果连续失败，再查模型或搜索链路。",
+        "topic": "生成失败",
+        "links": [],
+    }
 
 
 def _load_history(topic_type: str) -> list[str]:

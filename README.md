@@ -6,7 +6,7 @@
 
 ## 功能
 
-### 早报（每日 8:00）
+### 早报（每日 7:20，北京时间）
 - **全行业资讯 ×5** — 从 36氪、虎嗅、少数派等 RSS 源 + 知乎热榜抓取，GPT 智能选稿
 - **兴趣领域资讯 ×5** — 按你配置的关键词筛选（如 AI、企业招聘）
 - **播客推荐** — 小宇宙最新单集 + 收听链接
@@ -29,7 +29,10 @@
 | Secret | 说明 | 获取方式 |
 |--------|------|---------|
 | `OPENAI_API_KEY` | OpenAI API Key | https://platform.openai.com/api-keys |
-| `FEISHU_WEBHOOK` | 飞书机器人 Webhook URL | 飞书群 → 添加自定义机器人 |
+| `FEISHU_APP_ID` | 飞书应用 App ID | 飞书开放平台应用 |
+| `FEISHU_APP_SECRET` | 飞书应用 App Secret | 飞书开放平台应用 |
+| `FEISHU_RECEIVE_ID` | 接收人的 open_id / chat_id | 可用 `tools/get_open_id.py` 获取 |
+| `OPENAI_BASE_URL` | OpenAI 兼容接口地址（可选） | 自建/中转接口时填写 |
 | `QWEATHER_API_KEY` | 和风天气 API Key | https://dev.qweather.com （免费） |
 
 ### 3. 修改配置
@@ -56,7 +59,7 @@ interests:
 ### 5. 自动运行
 
 配置完成后，GitHub Actions 每天自动运行：
-- 早报：北京时间 8:00
+- 早报：北京时间 7:20
 - 午报：北京时间 12:00
 
 ## 项目结构
@@ -111,18 +114,18 @@ python src/afternoon.py
 | 项目 | 费用 |
 |------|------|
 | GitHub Actions | 免费 |
-| OpenAI GPT-4o-mini | ~$0.01/天 |
+| OpenAI 兼容模型 | 取决于所用模型 |
 | 和风天气 API | 免费 |
-| 飞书机器人 | 免费 |
+| 飞书应用 | 免费 |
 | **总计** | **~$0.3/月** |
 
 ## 技术栈
 
 - **Python 3.11+**
-- **OpenAI GPT-4o-mini** — 选稿 + 内容生成
+- **OpenAI 兼容模型** — 选稿 + 内容生成
 - **feedparser** — RSS 解析
 - **GitHub Actions** — 定时任务
-- **飞书 Webhook** — 消息推送
+- **飞书应用 / Webhook** — 消息推送
 
 ## License
 

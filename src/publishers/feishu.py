@@ -112,6 +112,23 @@ def _send_via_webhook(webhook_url: str, card: dict) -> bool:
     return False
 
 
+def _format_article_item(index: int, article: dict) -> str:
+    title = article.get("title", "")
+    url = article.get("url", "")
+    source = article.get("source", "")
+    reason = article.get("reason", "")
+    takeaway = article.get("takeaway", "")
+
+    line = f"{index}. [{title}]({url})\n" if url else f"{index}. {title}\n"
+    if reason:
+        line += f"   - 看点：{reason}\n"
+    if takeaway:
+        line += f"   - 判断：{takeaway}\n"
+    elif source:
+        line += f"   - 来源：{source}\n"
+    return line
+
+
 def build_morning_card(
     general_news: list[dict],
     interest_news: dict[str, list[dict]],
@@ -143,7 +160,7 @@ def build_morning_card(
     # 全行业资讯
     general_md = "**━━ 全行业资讯 ━━**\n"
     for i, a in enumerate(general_news, 1):
-        general_md += f"{i}. [{a['title']}]({a['url']})\n"
+        general_md += _format_article_item(i, a)
     elements.append({"tag": "markdown", "content": general_md})
     elements.append({"tag": "hr"})
 
@@ -151,7 +168,7 @@ def build_morning_card(
     for interest_name, news_list in interest_news.items():
         interest_md = f"**━━ {interest_name} · 兴趣领域 ━━**\n"
         for i, a in enumerate(news_list, 1):
-            interest_md += f"{i}. [{a['title']}]({a['url']})\n"
+            interest_md += _format_article_item(i, a)
         elements.append({"tag": "markdown", "content": interest_md})
         elements.append({"tag": "hr"})
 

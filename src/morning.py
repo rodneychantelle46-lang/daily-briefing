@@ -1,7 +1,8 @@
+import json
 import os
 import sys
 import yaml
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -21,6 +22,52 @@ from src.utils.logger import get_logger
 from src.utils.dedup import load_seen, save_seen, filter_unseen, mark_seen, cleanup_old
 
 logger = get_logger("morning")
+
+
+def _parse_iso_datetime(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def filter_recent_articles(articles: list[dict], max_age_days: int = 14) -> list[dict]:
+    """Drop obviously stale RSS entries before the LLM sees them.
+
+    Some feeds (notably product blogs) expose hundreds of old posts. Keeping all of
+    them makes the model pick stale noise and burns tokens. Entries without a
+    usable timestamp are kept, because several Chinese feeds omit dates.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    recent = []
+    stale = 0
+    for article in articles:
+        dt = _parse_iso_datetime(article.get("published_at", ""))
+        if dt is None or dt >= cutoff:
+            recent.append(article)
+        else:
+            stale += 1
+    if stale:
+        logger.info(f"新鲜度过滤: 丢弃 {stale} 篇超过 {max_age_days} 天的旧内容")
+    return recent
+
+
+def write_card_artifact(card: dict, date_str: str) -> Path:
+    artifacts_dir = PROJECT_ROOT / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"morning-card-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    path = artifacts_dir / filename
+    payload = {
+        "date": date_str,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "card": card,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    logger.info(f"晨报卡片已保存到 artifact: {path}")
+    return path
 
 
 def load_config() -> dict:
@@ -66,7 +113,7 @@ def main():
     # 2. 抓取知乎热榜
     logger.info("--- 步骤 2: 抓取知乎热榜 ---")
     zhihu_articles = fetch_zhihu_hot()
-    all_articles = general_articles + zhihu_articles
+    all_articles = filter_recent_articles(general_articles + zhihu_articles, max_age_days=14)
 
     # 3. 抓取兴趣领域 RSS
     logger.info("--- 步骤 3: 抓取兴趣领域 RSS ---")
@@ -76,7 +123,7 @@ def main():
             interest_sources[key] = rss_sources[key]
     interest_articles = {}
     for key, sources in interest_sources.items():
-        interest_articles[key] = fetch_rss(sources)
+        interest_articles[key] = filter_recent_articles(fetch_rss(sources), max_age_days=30)
 
     # 4. 去重过滤
     logger.info("--- 步骤 4: 去重过滤 ---")
@@ -149,15 +196,12 @@ def main():
         bili_pool = filter_unseen(bili_pool, seen_data)
         bilibili_videos = bili_pool[:bili_count]
 
-    # 6. 记录已推送文章
-    logger.info("--- 步骤 6: 记录已推送 ---")
+    # 6. 先暂存待记录条目；飞书发送成功后再真正落去重，避免“没发出去却已标记已读”。
+    logger.info("--- 步骤 6: 准备去重状态 ---")
     all_selected = list(general_top5)
     for news_list in interest_top5.values():
         all_selected.extend(news_list)
     all_selected.extend(bilibili_videos)
-    mark_seen(all_selected, seen_data)
-    seen_data = cleanup_old(seen_data, config.get("dedup", {}).get("retention_days", 7))
-    save_seen(seen_data)
 
     # 7. 天气
     logger.info("--- 步骤 7: 获取天气 ---")
@@ -192,10 +236,21 @@ def main():
         date_str=date_str,
     )
 
+    write_card_artifact(card, date_str)
+
     # 11. 推送
     logger.info("--- 步骤 11: 飞书推送 ---")
     feishu_config = config.get("publisher", {}).get("feishu", {})
-    send_feishu_card(card, feishu_config)
+    sent = send_feishu_card(card, feishu_config)
+    if not sent:
+        logger.error("飞书推送失败，晨报任务按失败退出，防止 GitHub Actions 假成功")
+        sys.exit(1)
+
+    # 12. 记录已推送文章
+    logger.info("--- 步骤 12: 记录已推送 ---")
+    mark_seen(all_selected, seen_data)
+    seen_data = cleanup_old(seen_data, config.get("dedup", {}).get("retention_days", 7))
+    save_seen(seen_data)
 
     logger.info("========== 早报完成 ==========")
 

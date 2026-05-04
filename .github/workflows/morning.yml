@@ -1,5 +1,9 @@
 name: Morning Briefing
 
+permissions:
+  contents: read
+  actions: write
+
 on:
   schedule:
     # 7:20 AM CST (UTC+8) = 23:20 UTC (previous day)
@@ -20,6 +24,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore runtime data cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: daily-briefing-data-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            daily-briefing-data-${{ github.ref_name }}-
+
       - name: Run morning briefing
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -28,4 +40,22 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
+          PYTHONIOENCODING: utf-8
         run: python src/morning.py
+
+      - name: Save runtime data cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: daily-briefing-data-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload briefing artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: morning-briefing-${{ github.run_id }}
+          path: |
+            artifacts/*.json
+            data/*.json
+          if-no-files-found: ignore

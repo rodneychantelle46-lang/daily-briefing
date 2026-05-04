@@ -13,7 +13,7 @@ HISTORY_PATH = PROJECT_ROOT / "data" / "generated_topics.json"
 TOPIC_CONFIGS = {
     "cs_ai_learning": {
         "name": "计网 × AI 知识学习",
-        "prompt": """生成一条适合纯文科生的“计算机网络 + AI”知识学习卡片，保持午报风格，140-220 字。
+        "prompt": """生成一张适合纯文科生的“计算机网络 + AI”知识学习卡片，保持午报风格。这个栏目一共两个知识点：1 个计算机网络知识点 + 1 个 AI 基础知识点。
 
 整体知识规划按这张地图推进，避免每天东一榔头西一棒：
 1. 网络基础：IP、端口、DNS、HTTP/HTTPS、TCP/UDP、Cookie/Session
@@ -23,16 +23,19 @@ TOPIC_CONFIGS = {
 5. AI 工程：提示词、工具调用、评估、权限、安全、成本
 
 要求：
-- 每次只讲一个小概念，不要长篇大论
+- points 必须刚好 2 条
+- 第 1 条必须来自网络基础 / Web 与 API / 数据与系统，偏计算机网络和互联网工作原理
+- 第 2 条必须来自 AI 基础 / AI 工程，偏 AI 底层概念和 Agent 实践
+- 每条只讲一个小概念，每条 content 80-130 字
 - 必须深入浅出：先用生活类比解释，再给准确说法
 - 要说明它和 AI Agent / OpenClaw / 日常上网有什么关系
 - 不要幼稚化，不要百科腔，不要堆术语
-- 给一个今天可以动手的小观察/小实验
+- 每条都给一个今天可以动手的小观察/小实验
 
 避免重复这些已生成过的主题：{history}
 
 请严格返回 JSON 格式：
-{{"pillar": "知识地图中的一级主题", "title": "10字以内标题", "content": "知识卡片正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}""",
+{{"title": "栏目总标题，10字以内", "topic": "两个主题关键词，用 + 连接", "points": [{{"pillar": "网络基础/Web 与 API/数据与系统", "title": "10字以内标题", "content": "知识点正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}, {{"pillar": "AI 基础/AI 工程", "title": "10字以内标题", "content": "知识点正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}]}}""",
     },
     "psychology": {
         "name": "心理学/经济学技巧",
@@ -186,22 +189,61 @@ def summarize_github_repos(
 
 
 def _normalize_tip_result(result: dict, section_name: str) -> dict:
-    content = str(result.get("content", "")).strip()
     title = str(result.get("title", "")).strip()[:16]
     topic = str(result.get("topic", title or section_name)).strip()
+    points = _normalize_learning_points(result.get("points", []))
+    content = str(result.get("content", "")).strip()
     try_this = str(result.get("try_this", "")).strip()
+
+    if points:
+        content = "\n".join(point["content"] for point in points)
+        if not topic:
+            topic = " + ".join(point.get("topic", "") for point in points if point.get("topic"))
+
     return {
         "title": title or section_name,
         "content": content,
         "try_this": try_this,
         "topic": topic,
         "pillar": str(result.get("pillar", "")).strip(),
+        "points": points,
     }
 
 
+def _normalize_learning_points(points: list[dict]) -> list[dict]:
+    if not isinstance(points, list):
+        return []
+    normalized = []
+    for point in points[:2]:
+        if not isinstance(point, dict):
+            continue
+        normalized.append({
+            "pillar": str(point.get("pillar", "")).strip(),
+            "title": str(point.get("title", "")).strip()[:16],
+            "content": str(point.get("content", "")).strip(),
+            "try_this": str(point.get("try_this", "")).strip(),
+            "topic": str(point.get("topic", "")).strip(),
+        })
+    return normalized
+
+
 def _is_low_quality_tip(result: dict) -> bool:
-    content = result.get("content", "")
     banned = ["提升效率", "非常重要", "值得关注", "在当今", "随着技术发展", "可以帮助你"]
+    points = result.get("points", [])
+    if points:
+        if len(points) != 2:
+            return True
+        for point in points:
+            content = point.get("content", "")
+            if len(content) < 40 or len(content) > 220:
+                return True
+            if sum(1 for word in banned if word in content) >= 2:
+                return True
+            if not point.get("try_this"):
+                return True
+        return False
+
+    content = result.get("content", "")
     if len(content) < 60:
         return True
     if len(content) > 360:
@@ -220,6 +262,7 @@ def _fallback_tip(section_name: str) -> dict:
         "try_this": "等下一次自动生成；如果连续失败，再查模型或搜索链路。",
         "topic": "生成失败",
         "pillar": "",
+        "points": [],
         "links": [],
     }
 

@@ -231,14 +231,30 @@ def build_afternoon_card(
         title = tip.get("title", "")
         try_this = tip.get("try_this", "")
         pillar = tip.get("pillar", "")
+        points = tip.get("points", [])
         tip_md = f"**━━ {icon} {name} ━━**\n"
-        if pillar:
-            tip_md += f"`{pillar}`\n"
-        if title and title != name:
-            tip_md += f"**{title}**\n"
-        tip_md += tip.get("content", "")
-        if try_this:
-            tip_md += f"\n\n**试一下**：{try_this}"
+        if points:
+            for idx, point in enumerate(points, start=1):
+                point_pillar = point.get("pillar", "")
+                point_title = point.get("title", "")
+                point_try = point.get("try_this", "")
+                if idx > 1:
+                    tip_md += "\n"
+                if point_pillar:
+                    tip_md += f"`{point_pillar}`\n"
+                if point_title:
+                    tip_md += f"**{idx}. {point_title}**\n"
+                tip_md += point.get("content", "")
+                if point_try:
+                    tip_md += f"\n**试一下**：{point_try}\n"
+        else:
+            if pillar:
+                tip_md += f"`{pillar}`\n"
+            if title and title != name:
+                tip_md += f"**{title}**\n"
+            tip_md += tip.get("content", "")
+            if try_this:
+                tip_md += f"\n\n**试一下**：{try_this}"
         links = tip.get("links", [])
         if links:
             tip_md += "\n\n📖 延伸阅读："

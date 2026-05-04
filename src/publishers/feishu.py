@@ -222,15 +222,18 @@ def build_afternoon_card(
 ) -> dict:
     elements = []
 
-    section_icons = ["🤖", "🧠", "💡"]
-    section_names = ["AI 技巧", "心理学/经济学", "品牌洞察"]
+    section_icons = ["🌐", "🧠", "💡"]
+    section_names = ["计网 × AI 知识学习", "心理学/经济学", "品牌洞察"]
 
     for i, tip in enumerate(tips):
         name = section_names[i] if i < len(section_names) else "知识卡片"
         icon = section_icons[i] if i < len(section_icons) else "📌"
         title = tip.get("title", "")
         try_this = tip.get("try_this", "")
+        pillar = tip.get("pillar", "")
         tip_md = f"**━━ {icon} {name} ━━**\n"
+        if pillar:
+            tip_md += f"`{pillar}`\n"
         if title and title != name:
             tip_md += f"**{title}**\n"
         tip_md += tip.get("content", "")

@@ -68,8 +68,8 @@ def main():
     base_url = llm_config.get("base_url", "")
 
     # 1. 生成三条内容
-    logger.info("--- 步骤 1: 生成 AI 技巧 ---")
-    ai_tip = generate_tip("ai_tip", model=model, api_key=api_key, base_url=base_url)
+    logger.info("--- 步骤 1: 生成计网 × AI 知识学习 ---")
+    learning = generate_tip("cs_ai_learning", model=model, api_key=api_key, base_url=base_url)
 
     logger.info("--- 步骤 2: 生成心理学/经济学技巧 ---")
     psychology = generate_tip("psychology", model=model, api_key=api_key, base_url=base_url)
@@ -77,7 +77,7 @@ def main():
     logger.info("--- 步骤 3: 生成品牌洞察 ---")
     brand = generate_tip("brand_insight", model=model, api_key=api_key, base_url=base_url)
 
-    tips = [ai_tip, psychology, brand]
+    tips = [learning, psychology, brand]
 
     # 2. GitHub 热门项目
     logger.info("--- 步骤 4: GitHub 热门项目 ---")

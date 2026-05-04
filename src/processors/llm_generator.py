@@ -11,19 +11,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 HISTORY_PATH = PROJECT_ROOT / "data" / "generated_topics.json"
 
 TOPIC_CONFIGS = {
-    "ai_tip": {
-        "name": "AI 技巧",
-        "prompt": """生成一条简洁实用的 AI 使用技巧，保持午报风格，120-180 字。
+    "cs_ai_learning": {
+        "name": "计网 × AI 知识学习",
+        "prompt": """生成一条适合纯文科生的“计算机网络 + AI”知识学习卡片，保持午报风格，140-220 字。
+
+整体知识规划按这张地图推进，避免每天东一榔头西一棒：
+1. 网络基础：IP、端口、DNS、HTTP/HTTPS、TCP/UDP、Cookie/Session
+2. Web 与 API：请求/响应、JSON、鉴权、Webhook、浏览器与服务器
+3. 数据与系统：数据库、缓存、队列、日志、云服务、部署
+4. AI 基础：Token、Embedding、向量数据库、RAG、Function Calling、Agent
+5. AI 工程：提示词、工具调用、评估、权限、安全、成本
+
 要求：
-- 必须有一个具体场景，不要泛泛讲“提高效率”
-- 必须给一个可复制的小模板/句式/步骤
-- 读者今天下午就能试
-- 语气自然，别像培训课件
+- 每次只讲一个小概念，不要长篇大论
+- 必须深入浅出：先用生活类比解释，再给准确说法
+- 要说明它和 AI Agent / OpenClaw / 日常上网有什么关系
+- 不要幼稚化，不要百科腔，不要堆术语
+- 给一个今天可以动手的小观察/小实验
 
 避免重复这些已生成过的主题：{history}
 
 请严格返回 JSON 格式：
-{{"title": "10字以内标题", "content": "技巧正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}""",
+{{"pillar": "知识地图中的一级主题", "title": "10字以内标题", "content": "知识卡片正文", "try_this": "今天可以试的一步", "topic": "主题关键词"}}""",
     },
     "psychology": {
         "name": "心理学/经济学技巧",
@@ -186,6 +195,7 @@ def _normalize_tip_result(result: dict, section_name: str) -> dict:
         "content": content,
         "try_this": try_this,
         "topic": topic,
+        "pillar": str(result.get("pillar", "")).strip(),
     }
 
 
@@ -193,6 +203,8 @@ def _is_low_quality_tip(result: dict) -> bool:
     content = result.get("content", "")
     banned = ["提升效率", "非常重要", "值得关注", "在当今", "随着技术发展", "可以帮助你"]
     if len(content) < 60:
+        return True
+    if len(content) > 360:
         return True
     if sum(1 for word in banned if word in content) >= 2:
         return True
@@ -207,6 +219,7 @@ def _fallback_tip(section_name: str) -> dict:
         "content": f"今日{section_name}生成失败，先跳过这块，不硬凑废话。",
         "try_this": "等下一次自动生成；如果连续失败，再查模型或搜索链路。",
         "topic": "生成失败",
+        "pillar": "",
         "links": [],
     }
 

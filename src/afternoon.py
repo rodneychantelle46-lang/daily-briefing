@@ -4,6 +4,7 @@ import sys
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -15,6 +16,11 @@ from src.publishers.feishu import build_afternoon_card, send_feishu_card
 from src.utils.logger import get_logger
 
 logger = get_logger("afternoon")
+APP_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def local_now() -> datetime:
+    return datetime.now(APP_TZ)
 
 
 def load_config() -> dict:
@@ -28,7 +34,7 @@ def load_config() -> dict:
 def write_afternoon_artifact(card: dict, tips: list[dict], github_repos: list[dict], date_str: str) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"afternoon-card-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    filename = f"afternoon-card-{local_now().strftime('%Y%m%d-%H%M%S')}.json"
     path = artifacts_dir / filename
     payload = {
         "date": date_str,
@@ -87,7 +93,7 @@ def main():
 
     # 3. 组装飞书卡片
     logger.info("--- 步骤 5: 组装飞书卡片 ---")
-    date_str = datetime.now().strftime("%Y年%m月%d日")
+    date_str = local_now().strftime("%Y年%m月%d日")
     card = build_afternoon_card(tips=tips, date_str=date_str, github_repos=repos)
     write_afternoon_artifact(card, tips, repos or [], date_str)
 

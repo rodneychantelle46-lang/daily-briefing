@@ -4,6 +4,7 @@ import sys
 import yaml
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 # 确保项目根目录在 sys.path
@@ -24,6 +25,11 @@ from src.utils.dedup import load_seen, save_seen, filter_unseen, mark_seen, clea
 from src.utils.source_quality import load_source_quality, update_source_quality, summarize_source_counts
 
 logger = get_logger("morning")
+APP_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def local_now() -> datetime:
+    return datetime.now(APP_TZ)
 
 
 def _parse_iso_datetime(value: str):
@@ -64,7 +70,7 @@ def write_audit_artifact(
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"morning-audit-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    filename = f"morning-audit-{local_now().strftime('%Y%m%d-%H%M%S')}.json"
     path = artifacts_dir / filename
     payload = {
         "date": date_str,
@@ -94,7 +100,7 @@ def write_audit_artifact(
 def write_card_artifact(card: dict, date_str: str) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"morning-card-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    filename = f"morning-card-{local_now().strftime('%Y%m%d-%H%M%S')}.json"
     path = artifacts_dir / filename
     payload = {
         "date": date_str,
@@ -276,7 +282,7 @@ def main():
 
     # 10. 组装飞书卡片
     logger.info("--- 步骤 11: 组装飞书卡片 ---")
-    date_str = datetime.now().strftime("%Y年%m月%d日")
+    date_str = local_now().strftime("%Y年%m月%d日")
     card = build_morning_card(
         general_news=general_top5,
         interest_news=interest_top5,

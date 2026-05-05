@@ -23,6 +23,7 @@ from src.publishers.feishu import build_morning_card, send_feishu_card
 from src.utils.logger import get_logger
 from src.utils.dedup import load_seen, save_seen, filter_unseen, mark_seen, cleanup_old
 from src.utils.source_quality import load_source_quality, update_source_quality, summarize_source_counts
+from src.utils.link_validator import validate_article_links
 
 logger = get_logger("morning")
 APP_TZ = ZoneInfo("Asia/Shanghai")
@@ -67,6 +68,7 @@ def write_audit_artifact(
     fetched_articles: list[dict],
     selected_articles: list[dict],
     source_quality: dict,
+    link_reports: list[dict] = None,
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +92,7 @@ def write_audit_artifact(
             for a in selected_articles
         ],
         "source_quality": source_quality,
+        "link_validation": link_reports or [],
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -248,8 +251,17 @@ def main():
         bili_pool = filter_unseen(bili_pool, seen_data)
         bilibili_videos = bili_pool[:bili_count]
 
-    # 6. 先暂存待记录条目；飞书发送成功后再真正落去重，避免“没发出去却已标记已读”。
-    logger.info("--- 步骤 7: 准备去重状态 ---")
+    # 6c. 链接与标题校验：剔除明确不一致的落地页，避免搜索页/错链混进正式卡片。
+    logger.info("--- 步骤 7: 校验标题与链接 ---")
+    link_reports = []
+    general_top5, reports = validate_article_links(general_top5)
+    link_reports.extend(reports)
+    for interest_name in list(interest_top5.keys()):
+        interest_top5[interest_name], reports = validate_article_links(interest_top5[interest_name])
+        link_reports.extend(reports)
+
+    # 7. 先暂存待记录条目；飞书发送成功后再真正落去重，避免“没发出去却已标记已读”。
+    logger.info("--- 步骤 8: 准备去重状态 ---")
     all_selected = list(general_top5)
     for news_list in interest_top5.values():
         all_selected.extend(news_list)
@@ -261,8 +273,8 @@ def main():
     fetched_for_quality.extend(bilibili_videos)
     source_quality = update_source_quality(fetched_for_quality, all_selected, source_quality)
 
-    # 7. 天气
-    logger.info("--- 步骤 8: 获取天气 ---")
+    # 8. 天气
+    logger.info("--- 步骤 9: 获取天气 ---")
     city = config.get("user", {}).get("city", "鼓楼")
     weather_cfg = config.get("weather", {})
     weather = fetch_weather(
@@ -271,17 +283,17 @@ def main():
         api_host=weather_cfg.get("api_host", ""),
     )
 
-    # 8. 每日一句
-    logger.info("--- 步骤 9: 每日一句 ---")
+    # 9. 每日一句
+    logger.info("--- 步骤 10: 每日一句 ---")
     quote = fetch_quote()
 
-    # 9. 播客推荐
-    logger.info("--- 步骤 10: 播客推荐 ---")
+    # 10. 播客推荐
+    logger.info("--- 步骤 11: 播客推荐 ---")
     podcast_sources = rss_sources.get("podcast", [])
     podcast = fetch_podcast(podcast_sources)
 
-    # 10. 组装飞书卡片
-    logger.info("--- 步骤 11: 组装飞书卡片 ---")
+    # 11. 组装飞书卡片
+    logger.info("--- 步骤 12: 组装飞书卡片 ---")
     date_str = local_now().strftime("%Y年%m月%d日")
     card = build_morning_card(
         general_news=general_top5,
@@ -295,18 +307,18 @@ def main():
     )
 
     write_card_artifact(card, date_str)
-    write_audit_artifact(date_str, fetched_for_quality, all_selected, source_quality)
+    write_audit_artifact(date_str, fetched_for_quality, all_selected, source_quality, link_reports)
 
-    # 11. 推送
-    logger.info("--- 步骤 12: 飞书推送 ---")
+    # 12. 推送
+    logger.info("--- 步骤 13: 飞书推送 ---")
     feishu_config = config.get("publisher", {}).get("feishu", {})
     sent = send_feishu_card(card, feishu_config)
     if not sent:
         logger.error("飞书推送失败，晨报任务按失败退出，防止 GitHub Actions 假成功")
         sys.exit(1)
 
-    # 12. 记录已推送文章
-    logger.info("--- 步骤 13: 记录已推送 ---")
+    # 13. 记录已推送文章
+    logger.info("--- 步骤 14: 记录已推送 ---")
     mark_seen(all_selected, seen_data)
     seen_data = cleanup_old(seen_data, config.get("dedup", {}).get("retention_days", 7))
     save_seen(seen_data)

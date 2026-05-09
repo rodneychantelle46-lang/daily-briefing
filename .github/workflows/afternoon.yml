@@ -4,6 +4,11 @@ permissions:
   contents: read
   actions: write
 
+# Keep scheduled and manual runs from racing each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   schedule:
     # 12:00 PM CST (UTC+8) = 04:00 UTC

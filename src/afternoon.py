@@ -14,6 +14,7 @@ from src.processors.llm_generator import generate_tip, summarize_github_repos
 from src.fetchers.github_fetcher import fetch_trending_repos
 from src.publishers.feishu import build_afternoon_card, send_feishu_card
 from src.utils.logger import get_logger
+from src.utils.send_guard import already_sent, mark_sent
 
 logger = get_logger("afternoon")
 APP_TZ = ZoneInfo("Asia/Shanghai")
@@ -67,6 +68,9 @@ def main():
 
     logger.info("========== 午报开始 ==========")
     config = load_config()
+    send_date = local_now().strftime("%Y-%m-%d")
+    if already_sent("afternoon", send_date):
+        return
 
     llm_config = config.get("llm", {})
     model = llm_config.get("model", "gpt-5.5")
@@ -104,6 +108,7 @@ def main():
     if not sent:
         logger.error("飞书推送失败，午报任务按失败退出，防止 GitHub Actions 假成功")
         sys.exit(1)
+    mark_sent("afternoon", send_date, metadata={"date": date_str})
 
     logger.info("========== 午报完成 ==========")
 

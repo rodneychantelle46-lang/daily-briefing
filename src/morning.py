@@ -22,6 +22,7 @@ from src.processors.llm_selector import select_articles
 from src.publishers.feishu import build_morning_card, send_feishu_card
 from src.utils.logger import get_logger
 from src.utils.dedup import load_seen, save_seen, filter_unseen, mark_seen, cleanup_old
+from src.utils.send_guard import already_sent, mark_sent
 from src.utils.source_quality import load_source_quality, update_source_quality, summarize_source_counts
 from src.utils.link_validator import validate_article_links
 
@@ -149,6 +150,10 @@ def main():
 
     logger.info("========== 早报开始 ==========")
     config = load_config()
+    send_date = local_now().strftime("%Y-%m-%d")
+    if already_sent("morning", send_date):
+        return
+
     rss_sources = load_rss_sources()
     source_quality = load_source_quality()
 
@@ -316,6 +321,7 @@ def main():
     if not sent:
         logger.error("飞书推送失败，晨报任务按失败退出，防止 GitHub Actions 假成功")
         sys.exit(1)
+    mark_sent("morning", send_date, metadata={"date": date_str})
 
     # 13. 记录已推送文章
     logger.info("--- 步骤 14: 记录已推送 ---")

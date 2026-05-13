@@ -7,6 +7,9 @@ from src.utils.topic_cluster import cluster_related_articles
 
 logger = get_logger("llm_selector")
 
+SELECTION_STATUS_LLM = "llm"
+SELECTION_STATUS_DEGRADED = "degraded"
+
 
 def select_articles(
     articles: list[dict],
@@ -25,13 +28,23 @@ def select_articles(
     key = api_key or os.getenv("OPENAI_API_KEY", "")
     # 先做跨平台同话题合并，再限制候选池，避免把重复热搜和上千条旧博客塞给模型。
     clustered_articles = cluster_related_articles(articles)
+    candidate_articles = _prepare_candidates(
+        clustered_articles,
+        limit=80,
+        per_source_first_pass=6,
+        source_quality=source_quality,
+    )
 
     if not key:
-        logger.warning("OPENAI_API_KEY 未设置，使用降级策略（按时间倒序）")
-        return _fallback_select(clustered_articles, count)
+        logger.warning("OPENAI_API_KEY 未设置，使用降级策略（来源均衡候选）")
+        return _fallback_select(
+            candidate_articles,
+            count,
+            error_reason="OPENAI_API_KEY 未设置",
+            source_quality=source_quality,
+        )
 
     # 同时做来源均衡：TrendRadar/NewsNow 热榜源更广，但不能让某一个平台刷屏。
-    candidate_articles = _prepare_candidates(clustered_articles, limit=80, per_source_first_pass=6, source_quality=source_quality)
     article_list = "\n".join(
         _format_candidate_line(i + 1, a)
         for i, a in enumerate(candidate_articles)
@@ -72,20 +85,46 @@ def select_articles(
             temperature=0.3,
             max_tokens=1400,
         )
-        content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        content = _strip_json_fence(content)
         selected = json.loads(content)
         if isinstance(selected, list) and len(selected) > 0:
             logger.info(f"GPT 选稿完成（{category}）：{len(selected)} 篇")
             return _hydrate_selection(selected[:count], candidate_articles)
         else:
-            logger.warning("GPT 返回格式异常，使用降级策略")
-            return _fallback_select(articles, count)
+            logger.warning("GPT 返回格式异常，使用来源均衡降级策略")
+            return _fallback_select(
+                candidate_articles,
+                count,
+                error_reason="GPT 返回格式异常",
+                source_quality=source_quality,
+            )
     except json.JSONDecodeError as e:
-        logger.warning(f"GPT 返回 JSON 解析失败 ({e})，使用降级策略")
-        return _fallback_select(articles, count)
+        logger.warning(f"GPT 返回 JSON 解析失败 ({e})，使用来源均衡降级策略")
+        return _fallback_select(
+            candidate_articles,
+            count,
+            error_reason=f"JSON 解析失败: {e}",
+            source_quality=source_quality,
+        )
     except Exception as e:
-        logger.warning(f"GPT 调用失败 ({e})，使用降级策略")
-        return _fallback_select(articles, count)
+        logger.warning(f"GPT 调用失败 ({e})，使用来源均衡降级策略")
+        return _fallback_select(
+            candidate_articles,
+            count,
+            error_reason=f"{type(e).__name__}: {e}",
+            source_quality=source_quality,
+        )
+
+
+def _strip_json_fence(content: str) -> str:
+    content = content.strip()
+    if content.startswith("```json"):
+        content = content[len("```json"):]
+    elif content.startswith("```"):
+        content = content[len("```"):]
+    if content.endswith("```"):
+        content = content[:-len("```")]
+    return content.strip()
 
 
 def _prepare_candidates(
@@ -162,18 +201,32 @@ def _hydrate_selection(selected: list[dict], articles: list[dict]) -> list[dict]
             "multi_source_label": original.get("multi_source_label", ""),
             "reason": item.get("reason", "").strip(),
             "takeaway": item.get("takeaway", "").strip(),
+            "selection_status": SELECTION_STATUS_LLM,
+            "selection_error": "",
         })
     return hydrated
 
 
-def _fallback_select(articles: list[dict], count: int) -> list[dict]:
-    logger.info(f"降级策略：取前 {count} 篇")
+def _fallback_select(
+    articles: list[dict],
+    count: int,
+    error_reason: str = "模型选稿异常",
+    source_quality: dict = None,
+) -> list[dict]:
+    logger.info(f"降级策略：来源均衡取前 {count} 篇")
+    # 关键修复：降级时每个来源先拿 1 条，再补齐，避免今日头条/量子位这类单源霸屏。
+    candidates = _prepare_candidates(
+        articles,
+        limit=max(count * 4, count),
+        per_source_first_pass=1,
+        source_quality=source_quality,
+    )
     result = []
-    for a in articles[:count]:
+    for a in candidates[:count]:
         source = a.get("source", "")
         result.append({
-            "title": a["title"],
-            "url": a["url"],
+            "title": a.get("title", ""),
+            "url": a.get("url", ""),
             "source": source,
             "published_at": a.get("published_at", ""),
             "rank": a.get("rank"),
@@ -182,7 +235,22 @@ def _fallback_select(articles: list[dict], count: int) -> list[dict]:
             "related_urls": a.get("related_urls", []),
             "topic_cluster_size": a.get("topic_cluster_size", 1),
             "multi_source_label": a.get("multi_source_label", ""),
-            "reason": f"来自{source}，可快速扫一眼" if source else "可快速扫一眼",
-            "takeaway": "模型不可用时的保底选稿，优先看标题判断",
+            "reason": _fallback_reason(a),
+            "takeaway": "",
+            "selection_status": SELECTION_STATUS_DEGRADED,
+            "selection_error": error_reason,
         })
     return result
+
+
+def _fallback_reason(article: dict) -> str:
+    source = article.get("source", "")
+    rank = article.get("rank")
+    related_sources = article.get("related_sources") or []
+    if len(related_sources) > 1:
+        return "多源同热，降级候选"
+    if article.get("source_type") == "hotlist" and source and rank:
+        return f"{source}热榜#{rank}，降级候选"
+    if source:
+        return f"{source}新近内容，降级候选"
+    return "来源均衡降级候选"

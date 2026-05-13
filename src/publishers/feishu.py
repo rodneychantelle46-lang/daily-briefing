@@ -148,6 +148,8 @@ def build_morning_card(
     quote: dict = None,
     podcast: dict = None,
     date_str: str = "",
+    llm_degraded: bool = False,
+    degrade_note: str = "",
 ) -> dict:
     elements = []
 
@@ -165,6 +167,11 @@ def build_morning_card(
         wind_text = f" | {wind_dir}{wind_scale}级" if wind_dir else ""
         weather_md = f"📍 {city} · {condition_day} {temp_min}~{temp_max}°C{wind_text}"
         elements.append({"tag": "markdown", "content": weather_md})
+        elements.append({"tag": "hr"})
+
+    if llm_degraded:
+        note = degrade_note or "选稿模型异常：已降级为来源均衡候选版，本期仅供快速扫标题。"
+        elements.append({"tag": "markdown", "content": f"⚠️ {note}"})
         elements.append({"tag": "hr"})
 
     # 全行业资讯

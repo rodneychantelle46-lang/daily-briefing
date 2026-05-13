@@ -64,12 +64,48 @@ def filter_recent_articles(articles: list[dict], max_age_days: int = 14) -> list
     return recent
 
 
+def _summarize_link_reports(link_reports: list[dict] | None) -> dict:
+    reports = link_reports or []
+    return {
+        "total": len(reports),
+        "kept": sum(1 for r in reports if r.get("status") == "keep"),
+        "rejected": sum(1 for r in reports if r.get("status") == "reject"),
+        "fetch_errors_kept": sum(1 for r in reports if "抓取失败" in r.get("reason", "")),
+    }
+
+
+def _summarize_card(card: dict) -> dict:
+    elements = card.get("elements", []) if isinstance(card, dict) else []
+    return {
+        "section_count": len(elements),
+        "markdown_blocks": sum(1 for e in elements if e.get("tag") == "markdown"),
+        "header": card.get("header", {}).get("title", {}).get("content", "") if isinstance(card, dict) else "",
+    }
+
+
+def _is_llm_degraded(article: dict) -> bool:
+    return article.get("selection_status") == "degraded" or "模型不可用" in article.get("takeaway", "")
+
+
+def _selection_error_summary(selected_articles: list[dict]) -> dict:
+    summary: dict[str, int] = {}
+    for article in selected_articles:
+        if not _is_llm_degraded(article):
+            continue
+        reason = article.get("selection_error") or "unknown"
+        summary[reason] = summary.get(reason, 0) + 1
+    return summary
+
+
 def write_audit_artifact(
     date_str: str,
     fetched_articles: list[dict],
     selected_articles: list[dict],
     source_quality: dict,
     link_reports: list[dict] = None,
+    card: dict | None = None,
+    llm_degraded: bool = False,
+    aborted_reason: str = "",
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -78,6 +114,16 @@ def write_audit_artifact(
     payload = {
         "date": date_str,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "quality_summary": {
+            "fetched_total": len(fetched_articles),
+            "selected_total": len(selected_articles),
+            "source_count": len(summarize_source_counts(fetched_articles)),
+            "llm_degraded": llm_degraded,
+            "aborted_reason": aborted_reason,
+            "selection_errors": _selection_error_summary(selected_articles),
+            "link_validation": _summarize_link_reports(link_reports),
+            "card": _summarize_card(card or {}),
+        },
         "fetched_by_source": summarize_source_counts(fetched_articles),
         "selected_by_source": summarize_source_counts(selected_articles),
         "selected": [
@@ -89,6 +135,8 @@ def write_audit_artifact(
                 "related_sources": a.get("related_sources", []),
                 "reason": a.get("reason", ""),
                 "takeaway": a.get("takeaway", ""),
+                "selection_status": a.get("selection_status", ""),
+                "selection_error": a.get("selection_error", ""),
             }
             for a in selected_articles
         ],
@@ -278,6 +326,23 @@ def main():
     fetched_for_quality.extend(bilibili_videos)
     source_quality = update_source_quality(fetched_for_quality, all_selected, source_quality)
 
+    llm_degraded = any(_is_llm_degraded(a) for a in all_selected)
+    allow_degraded_morning = bool(llm_config.get("allow_degraded_morning", False))
+    date_str = local_now().strftime("%Y年%m月%d日")
+    if llm_degraded and not allow_degraded_morning:
+        aborted_reason = "选稿模型异常，已停止发送正式晨报，避免把降级候选伪装成编辑判断。"
+        write_audit_artifact(
+            date_str,
+            fetched_for_quality,
+            all_selected,
+            source_quality,
+            link_reports,
+            llm_degraded=True,
+            aborted_reason=aborted_reason,
+        )
+        logger.error(aborted_reason)
+        sys.exit(2)
+
     # 8. 天气
     logger.info("--- 步骤 9: 获取天气 ---")
     city = config.get("user", {}).get("city", "鼓楼")
@@ -299,7 +364,6 @@ def main():
 
     # 11. 组装飞书卡片
     logger.info("--- 步骤 12: 组装飞书卡片 ---")
-    date_str = local_now().strftime("%Y年%m月%d日")
     card = build_morning_card(
         general_news=general_top5,
         interest_news=interest_top5,
@@ -309,10 +373,19 @@ def main():
         quote=quote,
         podcast=podcast,
         date_str=date_str,
+        llm_degraded=llm_degraded,
     )
 
     write_card_artifact(card, date_str)
-    write_audit_artifact(date_str, fetched_for_quality, all_selected, source_quality, link_reports)
+    write_audit_artifact(
+        date_str,
+        fetched_for_quality,
+        all_selected,
+        source_quality,
+        link_reports,
+        card=card,
+        llm_degraded=llm_degraded,
+    )
 
     # 12. 推送
     logger.info("--- 步骤 13: 飞书推送 ---")

@@ -1,3 +1,4 @@
+import os
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -6,9 +7,15 @@ from src.utils.logger import get_logger
 logger = get_logger("github_fetcher")
 
 TRENDING_URL = "https://github.com/trending"
+GITHUB_API_URL = "https://api.github.com/repos"
 TIMEOUT = 10
+README_EXCERPT_LIMIT = 1200
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+}
+API_HEADERS = {
+    **HEADERS,
+    "Accept": "application/vnd.github+json",
 }
 
 PREFERRED_LANGS = {
@@ -52,11 +59,104 @@ def fetch_trending_repos(count: int = 5, candidate_count: int = 15) -> list[dict
             repos.append(repo)
 
         repos = sorted(repos, key=lambda r: r.get("quality_score", 0), reverse=True)[:count]
+        repos = [enrich_repo_metadata(repo) for repo in repos]
+        if not repos:
+            logger.warning("GitHub Trending: 未获取到候选项目")
+            return [_degraded_repo("github_trending_empty")]
         logger.info(f"GitHub Trending: 获取 {len(repos)} 个项目（候选 {len(articles[:candidate_count])} 个）")
         return repos
     except Exception as e:
         logger.warning(f"GitHub Trending 抓取失败: {e}")
-        return []
+        return [_degraded_repo(f"github_trending_fetch_failed: {type(e).__name__}: {e}")]
+
+
+def enrich_repo_metadata(repo: dict) -> dict:
+    """Add lightweight deep-read metadata for LLM evaluation.
+
+    We only use public GitHub endpoints and keep failures explicit. A repo with a
+    degraded deep read must not be presented as if README/API context was checked.
+    """
+    enriched = dict(repo)
+    repo_name = enriched.get("name", "")
+    if not _looks_like_repo_path(repo_name):
+        return _mark_deep_read_degraded(enriched, "invalid_repo_path")
+
+    try:
+        meta = _fetch_repo_api(repo_name)
+        enriched.update({
+            "description": meta.get("description") or enriched.get("description", ""),
+            "license": (meta.get("license") or {}).get("spdx_id") or "",
+            "topics": meta.get("topics") or [],
+            "updated_at": meta.get("updated_at", ""),
+            "open_issues_count": meta.get("open_issues_count"),
+            "stars": meta.get("stargazers_count"),
+            "forks": meta.get("forks_count"),
+        })
+        readme_excerpt, readme_error = _fetch_readme_excerpt(repo_name)
+        enriched["readme_excerpt"] = readme_excerpt
+        if readme_error:
+            enriched["readme_error"] = readme_error
+        enriched["deep_read_status"] = "ok"
+        enriched["deep_read_error"] = ""
+        return enriched
+    except Exception as e:
+        logger.warning(f"GitHub 深读失败 ({repo_name}): {e}")
+        return _mark_deep_read_degraded(enriched, f"github_deep_read_failed: {type(e).__name__}: {e}")
+
+
+def _fetch_repo_api(repo_name: str) -> dict:
+    headers = _github_api_headers()
+    resp = requests.get(f"{GITHUB_API_URL}/{repo_name}", headers=headers, timeout=TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _fetch_readme_excerpt(repo_name: str) -> tuple[str, str]:
+    headers = {
+        **_github_api_headers(),
+        "Accept": "application/vnd.github.raw+json",
+    }
+    try:
+        resp = requests.get(f"{GITHUB_API_URL}/{repo_name}/readme", headers=headers, timeout=TIMEOUT)
+        if resp.status_code == 404:
+            return "", "readme_not_found"
+        resp.raise_for_status()
+        return resp.text[:README_EXCERPT_LIMIT], ""
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"readme_fetch_failed: {type(e).__name__}: {e}") from e
+
+
+def _github_api_headers() -> dict:
+    headers = dict(API_HEADERS)
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _degraded_repo(error: str) -> dict:
+    return {
+        "name": "GitHub Trending",
+        "url": "",
+        "description": "GitHub Trending 获取失败，已按降级处理。",
+        "language": "",
+        "stars_today": "",
+        "summary": "GitHub Trending 获取失败，已阻断正式午报发送，避免伪装成项目深读。",
+        "generation_status": "degraded",
+        "generation_error": error,
+        "deep_read_status": "degraded",
+        "deep_read_error": error,
+        "quality_score": 0,
+    }
+
+
+def _mark_deep_read_degraded(repo: dict, error: str) -> dict:
+    repo["deep_read_status"] = "degraded"
+    repo["deep_read_error"] = error
+    repo.setdefault("readme_excerpt", "")
+    repo.setdefault("license", "")
+    repo.setdefault("topics", [])
+    return repo
 
 
 def _score_repo(repo: dict) -> float:
@@ -88,3 +188,7 @@ def _parse_stars_today(value: str) -> int:
     if not match:
         return 0
     return int(match.group(1).replace(",", ""))
+
+
+def _looks_like_repo_path(value: str) -> bool:
+    return bool(re.match(r"^[^/\s]+/[^/\s]+$", value or ""))

@@ -222,15 +222,27 @@ def build_morning_card(
     return card
 
 
+def _afternoon_item_degraded(item: dict) -> bool:
+    return item.get("generation_status") == "degraded" or item.get("deep_read_status") == "degraded"
+
+
 def build_afternoon_card(
     tips: list[dict],
     date_str: str = "",
     github_repos: list[dict] = None,
 ) -> dict:
     elements = []
+    github_repos = github_repos or []
 
     section_icons = ["🌐", "🧠", "💡"]
     section_names = ["计网 × AI 知识学习", "心理学/经济学", "品牌洞察"]
+
+    if any(_afternoon_item_degraded(tip) for tip in tips) or any(_afternoon_item_degraded(repo) for repo in github_repos):
+        elements.append({
+            "tag": "markdown",
+            "content": "⚠️ 午报生成链路存在降级内容：默认应阻断发送；若显式允许发送，本卡片仅供排查，不代表正式判断。",
+        })
+        elements.append({"tag": "hr"})
 
     for i, tip in enumerate(tips):
         name = section_names[i] if i < len(section_names) else "知识卡片"
@@ -283,18 +295,23 @@ def build_afternoon_card(
             summary = r.get("summary", r.get("description", ""))
             why = r.get("why", "")
             use_case = r.get("use_case", "")
+            risk = r.get("risk", "")
             lang = r.get("language", "")
             stars = r.get("stars_today", "")
             score = r.get("quality_score")
             lang_tag = f"`{lang}` " if lang else ""
             stars_tag = f" ⭐ {stars}" if stars else ""
             score_tag = f" · 质量 {score}" if score is not None else ""
-            gh_md += f"\n**[{name}]({url})**{stars_tag}{score_tag}\n"
+            status_tag = " · ⚠️ 降级" if _afternoon_item_degraded(r) else ""
+            repo_title = f"[{name}]({url})" if url else name
+            gh_md += f"\n**{repo_title}**{stars_tag}{score_tag}{status_tag}\n"
             gh_md += f"{lang_tag}{summary}\n"
             if why:
                 gh_md += f"- 看点：{why}\n"
             if use_case:
                 gh_md += f"- 可用：{use_case}\n"
+            if risk:
+                gh_md += f"- 风险：{risk}\n"
         elements.append({"tag": "markdown", "content": gh_md})
 
     card = {

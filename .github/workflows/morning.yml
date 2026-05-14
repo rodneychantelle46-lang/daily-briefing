@@ -38,9 +38,15 @@ jobs:
             daily-briefing-data-${{ github.ref_name }}-
 
       - name: Run morning briefing
+        id: morning
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          # The selector is the quality gate. Give transient LLM slowness room
+          # to recover, but still fail closed instead of sending degraded picks.
+          OPENAI_TIMEOUT: "90"
+          OPENAI_MAX_RETRIES: "2"
+          OPENAI_RETRY_DELAY: "8"
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
@@ -64,3 +70,14 @@ jobs:
             artifacts/*.json
             data/*.json
           if-no-files-found: ignore
+
+      - name: Notify morning failure
+        if: always() && steps.morning.outcome == 'failure'
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
+          BRIEFING_LABEL: "晨报"
+          BRIEFING_FAILURE_REASON: "Morning briefing GitHub Actions failed; artifacts were uploaded for audit."
+          PYTHONIOENCODING: utf-8
+        run: python -m src.notify_failure

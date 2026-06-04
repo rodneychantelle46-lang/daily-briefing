@@ -11,6 +11,18 @@ SELECTION_STATUS_LLM = "llm"
 SELECTION_STATUS_DEGRADED = "degraded"
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+LLM_SELECTOR_CANDIDATE_LIMIT = _env_int("LLM_SELECTOR_CANDIDATE_LIMIT", 45)
+LLM_SELECTOR_PER_SOURCE_FIRST_PASS = _env_int("LLM_SELECTOR_PER_SOURCE_FIRST_PASS", 4)
+LLM_SELECTOR_TITLE_LIMIT = _env_int("LLM_SELECTOR_TITLE_LIMIT", 96)
+
+
 def select_articles(
     articles: list[dict],
     category: str,
@@ -28,10 +40,12 @@ def select_articles(
     key = api_key or os.getenv("OPENAI_API_KEY", "")
     # 先做跨平台同话题合并，再限制候选池，避免把重复热搜和上千条旧博客塞给模型。
     clustered_articles = cluster_related_articles(articles)
+    candidate_limit = max(count * 6, min(LLM_SELECTOR_CANDIDATE_LIMIT, 80))
+    per_source_first_pass = max(1, min(LLM_SELECTOR_PER_SOURCE_FIRST_PASS, 6))
     candidate_articles = _prepare_candidates(
         clustered_articles,
-        limit=80,
-        per_source_first_pass=6,
+        limit=candidate_limit,
+        per_source_first_pass=per_source_first_pass,
         source_quality=source_quality,
     )
 
@@ -64,7 +78,8 @@ def select_articles(
 - 来源多样：尽量避免同一平台/同一话题刷屏{keyword_hint}
 
 输出要求：
-- 不要只复制标题，要补一条短看点和一条短判断
+- 只能按下面的 index 选择，不要自己编造或改写链接
+- 每条只返回 index、reason、takeaway
 - reason 控制在 35 字以内：说明为什么值得看
 - takeaway 控制在 45 字以内：给出明确判断，别官腔
 
@@ -72,7 +87,7 @@ def select_articles(
 {article_list}
 
 请严格返回 JSON 数组，格式如下，不要返回任何其他内容：
-[{{"title": "文章标题", "url": "文章链接", "reason": "短看点", "takeaway": "短判断"}}]
+[{{"index": 1, "reason": "短看点", "takeaway": "短判断"}}]
 
 只返回 {count} 篇，不多不少。"""
 
@@ -83,13 +98,23 @@ def select_articles(
             api_key=api_key,
             base_url=base_url,
             temperature=0.3,
-            max_tokens=1400,
+            max_tokens=min(900, 220 + count * 120),
         )
         content = _strip_json_fence(content)
         selected = json.loads(content)
         if isinstance(selected, list) and len(selected) > 0:
             logger.info(f"GPT 选稿完成（{category}）：{len(selected)} 篇")
-            return _hydrate_selection(selected[:count], candidate_articles)
+            hydrated = _hydrate_selection(selected[:count], candidate_articles)
+            if len(hydrated) >= count:
+                return hydrated[:count]
+            logger.warning("GPT 返回有效候选不足，使用来源均衡补齐")
+            return _fill_missing_selections(
+                hydrated,
+                candidate_articles,
+                count,
+                error_reason="GPT 返回有效候选不足",
+                source_quality=source_quality,
+            )
         else:
             logger.warning("GPT 返回格式异常，使用来源均衡降级策略")
             return _fallback_select(
@@ -178,19 +203,33 @@ def _format_candidate_line(index: int, article: dict) -> str:
     source_type = "热榜" if article.get("source_type") == "hotlist" else "RSS"
     related_sources = article.get("related_sources") or []
     related_text = f"多平台同热:{'/'.join(related_sources[:4])}" if len(related_sources) > 1 else ""
+    title = str(article.get("title", "")).strip().replace("\n", " ")[:LLM_SELECTOR_TITLE_LIMIT]
     meta = " — ".join(part for part in [source, source_type, rank_text, related_text, date] if part)
-    return f"{index}. [{article['title']}]({article['url']}) — {meta}"
+    return f"{index}. {title} — {meta}"
 
 
 def _hydrate_selection(selected: list[dict], articles: list[dict]) -> list[dict]:
     by_url = {a.get("url", ""): a for a in articles}
     hydrated = []
+    seen_urls: set[str] = set()
     for item in selected:
-        url = item.get("url", "")
-        original = by_url.get(url, {})
+        if not isinstance(item, dict):
+            continue
+        original = {}
+        index = _parse_selection_index(item.get("index"), len(articles))
+        if index is not None:
+            original = articles[index - 1]
+        else:
+            url = str(item.get("url", "")).strip()
+            original = by_url.get(url, {}) if url else {}
+
+        url = original.get("url", "") or str(item.get("url", "")).strip()
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
         hydrated.append({
-            "title": item.get("title") or original.get("title", ""),
-            "url": url or original.get("url", ""),
+            "title": original.get("title", item.get("title", "")),
+            "url": url,
             "source": original.get("source", item.get("source", "")),
             "published_at": original.get("published_at", ""),
             "rank": original.get("rank"),
@@ -199,8 +238,8 @@ def _hydrate_selection(selected: list[dict], articles: list[dict]) -> list[dict]
             "related_urls": original.get("related_urls", []),
             "topic_cluster_size": original.get("topic_cluster_size", 1),
             "multi_source_label": original.get("multi_source_label", ""),
-            "reason": item.get("reason", "").strip(),
-            "takeaway": item.get("takeaway", "").strip(),
+            "reason": str(item.get("reason", "")).strip(),
+            "takeaway": str(item.get("takeaway", "")).strip(),
             "selection_status": SELECTION_STATUS_LLM,
             "selection_error": "",
         })
@@ -221,8 +260,35 @@ def _fallback_select(
         per_source_first_pass=1,
         source_quality=source_quality,
     )
+    return _build_degraded_selection(candidates, count, error_reason)
+
+
+def _fallback_reason(article: dict) -> str:
+    source = article.get("source", "")
+    rank = article.get("rank")
+    related_sources = article.get("related_sources") or []
+    if len(related_sources) > 1:
+        return "多源同热，降级候选"
+    if article.get("source_type") == "hotlist" and source and rank:
+        return f"{source}热榜#{rank}，降级候选"
+    if source:
+        return f"{source}新近内容，降级候选"
+    return "来源均衡降级候选"
+
+
+def _parse_selection_index(value, articles_len: int) -> int | None:
+    try:
+        index = int(value)
+    except (TypeError, ValueError):
+        return None
+    if 1 <= index <= articles_len:
+        return index
+    return None
+
+
+def _build_degraded_selection(candidates: list[dict], count: int, error_reason: str) -> list[dict]:
     result = []
-    for a in candidates[:count]:
+    for a in candidates:
         source = a.get("source", "")
         result.append({
             "title": a.get("title", ""),
@@ -240,17 +306,23 @@ def _fallback_select(
             "selection_status": SELECTION_STATUS_DEGRADED,
             "selection_error": error_reason,
         })
+        if len(result) >= count:
+            break
     return result
 
 
-def _fallback_reason(article: dict) -> str:
-    source = article.get("source", "")
-    rank = article.get("rank")
-    related_sources = article.get("related_sources") or []
-    if len(related_sources) > 1:
-        return "多源同热，降级候选"
-    if article.get("source_type") == "hotlist" and source and rank:
-        return f"{source}热榜#{rank}，降级候选"
-    if source:
-        return f"{source}新近内容，降级候选"
-    return "来源均衡降级候选"
+def _fill_missing_selections(
+    hydrated: list[dict],
+    articles: list[dict],
+    count: int,
+    error_reason: str,
+    source_quality: dict = None,
+) -> list[dict]:
+    seen_urls = {item.get("url", "") for item in hydrated if item.get("url")}
+    remaining = [article for article in articles if article.get("url", "") not in seen_urls]
+    if not remaining:
+        return hydrated[:count]
+    filler = _fallback_select(remaining, count - len(hydrated), error_reason=error_reason, source_quality=source_quality)
+    combined = list(hydrated)
+    combined.extend(filler)
+    return combined[:count]

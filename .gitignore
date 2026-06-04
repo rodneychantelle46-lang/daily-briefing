@@ -8,3 +8,6 @@ dist/
 build/
 .idea/
 .vscode/
+
+# Local RCA artifacts downloaded from GitHub Actions
+.tmp-gh-*/

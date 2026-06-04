@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from src.morning import _is_llm_degraded
+from src.processors import llm_selector
 from src.processors.llm_selector import select_articles
 from src.publishers.feishu import build_morning_card
 
@@ -46,6 +47,48 @@ class MorningDegradedTests(unittest.TestCase):
         content = "\n".join(e.get("content", "") for e in card["elements"])
         self.assertIn("⚠️ 选稿模型异常", content)
         self.assertEqual(content.count("选稿模型异常"), 1)
+
+    def test_select_articles_hydrates_by_index_without_urls_in_prompt(self):
+        articles = []
+        for i in range(1, 4):
+            articles.append({
+                "title": f"标题{i}",
+                "url": f"https://example.com/{i}",
+                "source": f"来源{i}",
+                "rank": i,
+                "source_type": "hotlist",
+            })
+
+        captured = {}
+
+        def fake_chat_completion(*, messages, **kwargs):
+            captured["prompt"] = messages[0]["content"]
+            return "[{\"index\": 2, \"reason\": \"优先看第二条\", \"takeaway\": \"先看这条\"}]"
+
+        with patch.object(llm_selector, "cluster_related_articles", side_effect=lambda items: items), \
+             patch.object(llm_selector, "chat_completion", side_effect=fake_chat_completion):
+            selected = select_articles(articles, category="全行业", count=1, api_key="key", base_url="https://api.example.com")
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["title"], "标题2")
+        self.assertEqual(selected[0]["url"], "https://example.com/2")
+        self.assertIn("index", captured["prompt"])
+        self.assertNotIn("https://example.com/2", captured["prompt"])
+        self.assertNotIn("https://example.com/1", captured["prompt"])
+
+    def test_prepare_candidates_respects_cap(self):
+        articles = []
+        for i in range(1, 101):
+            articles.append({
+                "title": f"标题{i}",
+                "url": f"https://example.com/{i}",
+                "source": f"来源{i % 10}",
+                "rank": i,
+                "source_type": "hotlist",
+            })
+
+        candidates = llm_selector._prepare_candidates(articles, limit=45, per_source_first_pass=4)
+        self.assertLessEqual(len(candidates), 45)
 
 
 if __name__ == "__main__":

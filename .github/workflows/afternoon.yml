@@ -48,6 +48,8 @@ jobs:
           OPENAI_TIMEOUT: "90"
           OPENAI_MAX_RETRIES: "2"
           OPENAI_RETRY_DELAY: "8"
+          # Authenticate GitHub API deep reads; unauthenticated calls hit 60/h and degraded the GitHub section.
+          GITHUB_TOKEN: ${{ github.token }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}

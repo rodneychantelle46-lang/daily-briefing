@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 from src.publishers.feishu import send_feishu_card
+from src.publishers.telegram import send_telegram_brief
 from src.utils.logger import get_logger
 
 logger = get_logger("notify_failure")
@@ -63,12 +64,30 @@ def _feishu_config_from_env() -> dict:
     }
 
 
+def _telegram_config_from_env() -> dict:
+    return {
+        "bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+        "chat_id": os.getenv("TELEGRAM_CHAT_ID", ""),
+        "thread_id": os.getenv("TELEGRAM_THREAD_ID", ""),
+    }
+
+
 def main() -> int:
     load_dotenv()
     label = os.getenv("BRIEFING_LABEL", "简报")
     reason = os.getenv("BRIEFING_FAILURE_REASON", "GitHub Actions 执行失败")
     run_url = _github_run_url()
     card = build_failure_card(label=label, reason=reason, run_url=run_url)
+
+    telegram_config = _telegram_config_from_env()
+    if telegram_config["bot_token"] and telegram_config["chat_id"]:
+        sent = send_telegram_brief(card, telegram_config)
+        if not sent:
+            logger.error("失败告警发送失败")
+            return 1
+        logger.info("失败告警发送成功")
+        return 0
+
     config = _feishu_config_from_env()
 
     if not all([config["app_id"], config["app_secret"], config["receive_id"]]):

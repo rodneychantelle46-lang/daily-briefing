@@ -12,7 +12,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.processors.llm_generator import generate_tip, summarize_github_repos
 from src.fetchers.github_fetcher import fetch_trending_repos
-from src.publishers.feishu import build_afternoon_card, send_feishu_card
+from src.publishers.feishu import build_afternoon_card
+from src.publishers.telegram import send_telegram_brief
 from src.utils.logger import get_logger
 from src.utils.send_guard import already_sent, mark_sent
 
@@ -234,11 +235,11 @@ def main():
         sys.exit(2)
 
     # 4. 推送
-    logger.info("--- 步骤 6: 飞书推送 ---")
-    feishu_config = config.get("publisher", {}).get("feishu", {})
-    sent = send_feishu_card(card, feishu_config)
+    logger.info("--- 步骤 6: Telegram 推送 ---")
+    telegram_config = config.get("publisher", {}).get("telegram", {})
+    sent = send_telegram_brief(card, telegram_config)
     if not sent:
-        logger.error("飞书推送失败，午报任务按失败退出，防止 GitHub Actions 假成功")
+        logger.error("Telegram 推送失败，午报任务按失败退出，防止 GitHub Actions 假成功")
         sys.exit(1)
     mark_sent("afternoon", send_date, metadata={"date": date_str})
 

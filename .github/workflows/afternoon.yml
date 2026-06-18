@@ -50,9 +50,9 @@ jobs:
           OPENAI_RETRY_DELAY: "8"
           # Authenticate GitHub API deep reads; unauthenticated calls hit 60/h and degraded the GitHub section.
           GITHUB_TOKEN: ${{ github.token }}
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           PYTHONIOENCODING: utf-8
         run: python src/afternoon.py
@@ -77,9 +77,9 @@ jobs:
       - name: Notify afternoon failure
         if: always() && steps.afternoon.outcome == 'failure'
         env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
           BRIEFING_LABEL: "午报"
           BRIEFING_FAILURE_REASON: "Afternoon briefing GitHub Actions failed; artifacts were uploaded for audit."
           PYTHONIOENCODING: utf-8

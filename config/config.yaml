@@ -54,6 +54,10 @@ schedule:
   timezone: "Asia/Shanghai"
 
 publisher:
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    thread_id: "${TELEGRAM_THREAD_ID}"
   feishu:
     mode: "app"  # "app" 使用飞书应用, "webhook" 使用群机器人
     app_id: "${FEISHU_APP_ID}"

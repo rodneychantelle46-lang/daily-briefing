@@ -26,10 +26,25 @@ class NotifyFailureTests(unittest.TestCase):
         self.assertIn("https://example.com/run", content)
         self.assertIn("Morning Briefing", content)
 
-    def test_main_skips_when_feishu_config_missing(self):
-        with patch.dict(os.environ, {}, clear=True), patch("src.notify_failure.send_feishu_card") as send:
+    def test_main_skips_when_configs_missing(self):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("src.notify_failure.send_telegram_brief") as telegram_send, \
+             patch("src.notify_failure.send_feishu_card") as feishu_send:
             self.assertEqual(main(), 0)
-        send.assert_not_called()
+        telegram_send.assert_not_called()
+        feishu_send.assert_not_called()
+
+    def test_main_prefers_telegram_when_configured(self):
+        env = {
+            "TELEGRAM_BOT_TOKEN": "token",
+            "TELEGRAM_CHAT_ID": "123",
+        }
+        with patch.dict(os.environ, env, clear=True), \
+             patch("src.notify_failure.send_telegram_brief", return_value=True) as telegram_send, \
+             patch("src.notify_failure.send_feishu_card") as feishu_send:
+            self.assertEqual(main(), 0)
+        telegram_send.assert_called_once()
+        feishu_send.assert_not_called()
 
 
 if __name__ == "__main__":

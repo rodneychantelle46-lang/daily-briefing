@@ -19,7 +19,8 @@ from src.fetchers.quote_fetcher import fetch_quote
 from src.fetchers.podcast_fetcher import fetch_podcast
 from src.fetchers.bilibili_fetcher import fetch_bilibili_videos, fetch_popular_videos
 from src.processors.llm_selector import select_articles
-from src.publishers.feishu import build_morning_card, send_feishu_card
+from src.publishers.feishu import build_morning_card
+from src.publishers.telegram import send_telegram_brief
 from src.utils.logger import get_logger
 from src.utils.dedup import load_seen, save_seen, filter_unseen, mark_seen, cleanup_old
 from src.utils.send_guard import already_sent, mark_sent
@@ -388,11 +389,11 @@ def main():
     )
 
     # 12. 推送
-    logger.info("--- 步骤 13: 飞书推送 ---")
-    feishu_config = config.get("publisher", {}).get("feishu", {})
-    sent = send_feishu_card(card, feishu_config)
+    logger.info("--- 步骤 13: Telegram 推送 ---")
+    telegram_config = config.get("publisher", {}).get("telegram", {})
+    sent = send_telegram_brief(card, telegram_config)
     if not sent:
-        logger.error("飞书推送失败，晨报任务按失败退出，防止 GitHub Actions 假成功")
+        logger.error("Telegram 推送失败，晨报任务按失败退出，防止 GitHub Actions 假成功")
         sys.exit(1)
     mark_sent("morning", send_date, metadata={"date": date_str})
 

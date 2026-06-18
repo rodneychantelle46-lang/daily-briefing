@@ -44,7 +44,7 @@ class AfternoonQualityTests(unittest.TestCase):
     def test_degraded_tip_blocks_send_by_default(self):
         config = {
             "llm": {"model": "gpt-5.5", "api_key": "key", "base_url": ""},
-            "publisher": {"feishu": {}},
+            "publisher": {"telegram": {}},
         }
         with patch.object(afternoon, "load_dotenv"), \
              patch.object(afternoon, "load_config", return_value=config), \
@@ -53,7 +53,7 @@ class AfternoonQualityTests(unittest.TestCase):
              patch.object(afternoon, "fetch_trending_repos", return_value=[OK_REPO]), \
              patch.object(afternoon, "summarize_github_repos", return_value=[OK_REPO]), \
              patch.object(afternoon, "write_afternoon_artifact") as artifact, \
-             patch.object(afternoon, "send_feishu_card") as send:
+             patch.object(afternoon, "send_telegram_brief") as send:
             with self.assertRaises(SystemExit) as cm:
                 afternoon.main()
 

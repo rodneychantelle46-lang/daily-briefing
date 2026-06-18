@@ -37,7 +37,8 @@ def select_articles(
         logger.warning("没有文章可供选择")
         return []
 
-    key = api_key or os.getenv("OPENAI_API_KEY", "")
+    key = os.getenv("CODEX_API_KEY", "") or api_key or os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("CODEX_MODEL", "") or model or os.getenv("OPENAI_MODEL", "gpt-5.5")
     # 先做跨平台同话题合并，再限制候选池，避免把重复热搜和上千条旧博客塞给模型。
     clustered_articles = cluster_related_articles(articles)
     candidate_limit = max(count * 6, min(LLM_SELECTOR_CANDIDATE_LIMIT, 80))
@@ -50,11 +51,11 @@ def select_articles(
     )
 
     if not key:
-        logger.warning("OPENAI_API_KEY 未设置，使用降级策略（来源均衡候选）")
+        logger.warning("CODEX_API_KEY/OPENAI_API_KEY 未设置，使用降级策略（来源均衡候选）")
         return _fallback_select(
             candidate_articles,
             count,
-            error_reason="OPENAI_API_KEY 未设置",
+            error_reason="CODEX_API_KEY/OPENAI_API_KEY 未设置",
             source_quality=source_quality,
         )
 

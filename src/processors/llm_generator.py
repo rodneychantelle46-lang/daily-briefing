@@ -76,14 +76,15 @@ def generate_tip(
     api_key: str = None,
     base_url: str = None,
 ) -> dict:
-    key = api_key or os.getenv("OPENAI_API_KEY", "")
+    key = os.getenv("CODEX_API_KEY", "") or api_key or os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("CODEX_MODEL", "") or model or os.getenv("OPENAI_MODEL", "gpt-5.5")
     config = TOPIC_CONFIGS.get(topic_type)
     if not config:
         logger.warning(f"未知的主题类型: {topic_type}")
         return _fallback_tip(topic_type or "未知栏目", "unknown_topic_type")
 
     if not key:
-        logger.warning("OPENAI_API_KEY 未设置，无法生成内容")
+        logger.warning("CODEX_API_KEY/OPENAI_API_KEY 未设置，无法生成内容")
         return _fallback_tip(config["name"], "missing_api_key")
 
     history = _load_history(topic_type)
@@ -137,9 +138,10 @@ def summarize_github_repos(
     if any(r.get("deep_read_status") != "ok" for r in repos):
         return _mark_github_degraded(repos, "github_deep_read_missing_or_degraded")
 
-    key = api_key or os.getenv("OPENAI_API_KEY", "")
+    key = os.getenv("CODEX_API_KEY", "") or api_key or os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("CODEX_MODEL", "") or model or os.getenv("OPENAI_MODEL", "gpt-5.5")
     if not key:
-        logger.warning("OPENAI_API_KEY 未设置，无法生成 GitHub 摘要")
+        logger.warning("CODEX_API_KEY/OPENAI_API_KEY 未设置，无法生成 GitHub 摘要")
         return _mark_github_degraded(repos, "missing_api_key")
 
     repo_list = "\n".join(_format_repo_for_prompt(i, r) for i, r in enumerate(repos, start=1))

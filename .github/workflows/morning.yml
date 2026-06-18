@@ -40,10 +40,16 @@ jobs:
       - name: Run morning briefing
         id: morning
         env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+          CODEX_MODEL: ${{ secrets.CODEX_MODEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           # The selector is the quality gate. Give transient LLM slowness room
           # to recover, but still fail closed instead of sending degraded picks.
+          CODEX_TIMEOUT: "90"
+          CODEX_MAX_RETRIES: "2"
+          CODEX_RETRY_DELAY: "8"
           OPENAI_TIMEOUT: "90"
           OPENAI_MAX_RETRIES: "2"
           OPENAI_RETRY_DELAY: "8"

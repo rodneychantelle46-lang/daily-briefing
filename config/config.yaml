@@ -71,9 +71,9 @@ llm:
   model: "gpt-5.5"
   api_key: "${OPENAI_API_KEY}"
   base_url: "${OPENAI_BASE_URL}"
-  # LLM 后端偶发超时时，仍发送带明确降级提示的晨报/午报，避免整份报纸缺席。
-  allow_degraded_morning: true
-  allow_degraded_afternoon: true
+  # LLM 后端异常时 fail closed：不发送降级占位卡片，只触发失败告警。
+  allow_degraded_morning: false
+  allow_degraded_afternoon: false
 
 weather:
   provider: "qweather"

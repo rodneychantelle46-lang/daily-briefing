@@ -22,6 +22,7 @@ def send_telegram_text(text: str, telegram_config: dict) -> bool:
     bot_token = telegram_config.get("bot_token", "")
     chat_id = telegram_config.get("chat_id", "")
     thread_id = telegram_config.get("thread_id", "")
+    proxy = telegram_config.get("proxy", "")
 
     if not bot_token or not chat_id:
         logger.error("Telegram 配置不完整（需要 bot_token, chat_id）")
@@ -38,7 +39,7 @@ def send_telegram_text(text: str, telegram_config: dict) -> bool:
             payload["message_thread_id"] = thread_id
         if len(chunks) > 1:
             payload["text"] = f"{payload['text']}\n\n({index}/{len(chunks)})"
-        if not _send_message(bot_token, payload):
+        if not _send_message(bot_token, payload, proxy=proxy):
             return False
     return True
 
@@ -113,11 +114,12 @@ def _clean_markdown_for_telegram(text: str) -> str:
     return text.strip()
 
 
-def _send_message(bot_token: str, payload: dict) -> bool:
+def _send_message(bot_token: str, payload: dict, proxy: str = "") -> bool:
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    proxies = _build_proxies(proxy)
     for attempt in range(MAX_RETRIES + 1):
         try:
-            resp = requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, json=payload, timeout=10, proxies=proxies)
             resp.raise_for_status()
             result = resp.json()
             if result.get("ok") is True:
@@ -125,8 +127,18 @@ def _send_message(bot_token: str, payload: dict) -> bool:
                 return True
             logger.warning(f"Telegram 返回异常: {result}")
         except Exception as e:
-            logger.warning(f"Telegram 推送失败（第 {attempt + 1} 次）: {e}")
+            logger.warning(f"Telegram 推送失败（第 {attempt + 1} 次）: {_sanitize_error(e, bot_token)}")
         if attempt < MAX_RETRIES:
             time.sleep(RETRY_DELAY)
     logger.error("Telegram 推送最终失败，已达最大重试次数")
     return False
+
+
+def _build_proxies(proxy: str) -> dict | None:
+    if not proxy:
+        return None
+    return {"http": proxy, "https": proxy}
+
+
+def _sanitize_error(error: Exception, bot_token: str) -> str:
+    return str(error).replace(bot_token, "<redacted>")

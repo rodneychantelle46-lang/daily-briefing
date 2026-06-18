@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.publishers.telegram import (
+    _sanitize_error,
     render_card_as_telegram_text,
     send_telegram_text,
     split_telegram_text,
@@ -53,6 +54,31 @@ class TelegramPublisherTests(unittest.TestCase):
         self.assertEqual(payload["text"], "hello")
         self.assertTrue(payload["disable_web_page_preview"])
         self.assertNotIn("parse_mode", payload)
+
+    def test_send_uses_optional_proxy(self):
+        response = Mock()
+        response.json.return_value = {"ok": True}
+        response.raise_for_status.return_value = None
+
+        with patch("src.publishers.telegram.requests.post", return_value=response) as post:
+            ok = send_telegram_text(
+                "hello",
+                {"bot_token": "token", "chat_id": "123", "proxy": "http://127.0.0.1:7897"},
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            post.call_args.kwargs["proxies"],
+            {"http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897"},
+        )
+
+    def test_sanitize_error_redacts_bot_token(self):
+        error = RuntimeError("https://api.telegram.org/botsecret-token/sendMessage failed")
+
+        sanitized = _sanitize_error(error, "secret-token")
+
+        self.assertIn("<redacted>", sanitized)
+        self.assertNotIn("secret-token", sanitized)
 
 
 if __name__ == "__main__":

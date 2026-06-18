@@ -15,6 +15,15 @@ on:
     # Avoid GitHub Actions scheduled-run congestion around the top of the hour.
     - cron: '7 4 * * *'
   workflow_dispatch:  # 手动触发
+    inputs:
+      force_resend:
+        description: "Force resend even if today's afternoon briefing was already marked sent"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   afternoon:
@@ -61,6 +70,7 @@ jobs:
           TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           PYTHONIOENCODING: utf-8
+          DAILY_BRIEFING_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '' }}
         run: python src/afternoon.py
 
       - name: Save runtime data cache

@@ -86,7 +86,7 @@ def _provider_configs(api_key: str | None, base_url: str | None, model: str) -> 
         })
 
     add("codex", codex_key, os.getenv("CODEX_BASE_URL", ""), os.getenv("CODEX_MODEL", "") or model)
-    if api_key and (base_url or api_key not in {codex_key, openai_key}):
+    if api_key and api_key not in {codex_key, openai_key}:
         add("explicit", api_key, base_url, model)
     add("openai", openai_key, os.getenv("OPENAI_BASE_URL", "") or "https://api.openai.com/v1", os.getenv("OPENAI_MODEL", "") or model)
     return providers

@@ -115,6 +115,7 @@ class LlmClientTests(unittest.TestCase):
                 chat_completion(
                     messages=[{"role": "user", "content": "hi"}],
                     api_key="codex-key",
+                    base_url="https://explicit.example.com/v1",
                     max_retries=0,
                 )
 

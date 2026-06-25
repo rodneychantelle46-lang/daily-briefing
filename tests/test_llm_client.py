@@ -79,6 +79,28 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(post.call_args_list[1].kwargs["json"]["model"], "openai-model")
         sleep.assert_not_called()
 
+    def test_codex_timeout_falls_back_to_openai_without_retry_delay(self):
+        openai_success = FakeResponse(data={"choices": [{"message": {"content": "fast fallback"}}]})
+        env = {
+            "CODEX_API_KEY": "codex-key",
+            "CODEX_BASE_URL": "https://codex.example.com/v1",
+            "OPENAI_API_KEY": "openai-key",
+            "OPENAI_BASE_URL": "https://openai.example.com/v1",
+        }
+        with patch("src.utils.llm_client.requests.post", side_effect=[requests.Timeout("codex slow"), openai_success]) as post, \
+             patch("src.utils.llm_client.time.sleep") as sleep, \
+             patch.dict("os.environ", env, clear=True):
+            result = chat_completion(
+                messages=[{"role": "user", "content": "hi"}],
+                max_retries=2,
+            )
+
+        self.assertEqual(result, "fast fallback")
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(post.call_args_list[0].args[0], "https://codex.example.com/v1/chat/completions")
+        self.assertEqual(post.call_args_list[1].args[0], "https://openai.example.com/v1/chat/completions")
+        sleep.assert_not_called()
+
     def test_env_key_passed_as_explicit_is_not_retried_against_default_openai_url(self):
         codex_failure = FakeResponse(status_code=503, text='{"error":"auth_unavailable"}')
         env = {

@@ -111,6 +111,7 @@ def chat_completion(
     provider_errors = []
 
     for provider_index, provider in enumerate(providers):
+        provider_retries = 0 if provider_index < len(providers) - 1 else retries
         endpoint = f"{provider['url']}/chat/completions"
         headers = {
             "Authorization": f"Bearer {provider['key']}",
@@ -123,16 +124,16 @@ def chat_completion(
             "max_tokens": max_tokens,
         }
 
-        for attempt in range(retries + 1):
+        for attempt in range(provider_retries + 1):
             try:
                 resp = requests.post(endpoint, headers=headers, json=payload, timeout=request_timeout)
                 _raise_for_status_with_body(resp)
                 data = resp.json()
                 return data["choices"][0]["message"]["content"].strip()
             except requests.exceptions.RequestException as e:
-                if attempt < retries and _is_retryable_error(e):
+                if attempt < provider_retries and _is_retryable_error(e):
                     logger.warning(
-                        f"LLM 请求失败，准备重试 ({attempt + 1}/{retries})：provider={provider['name']} {type(e).__name__}: {_redact_sensitive(str(e))}"
+                        f"LLM 请求失败，准备重试 ({attempt + 1}/{provider_retries})：provider={provider['name']} {type(e).__name__}: {_redact_sensitive(str(e))}"
                     )
                     time.sleep(RETRY_DELAY)
                     continue

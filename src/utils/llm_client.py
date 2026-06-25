@@ -63,6 +63,35 @@ def _is_retryable_error(error: requests.exceptions.RequestException) -> bool:
     return isinstance(error, (requests.Timeout, requests.ConnectionError))
 
 
+def _provider_configs(api_key: str | None, base_url: str | None, model: str) -> list[dict]:
+    providers = []
+    seen = set()
+    codex_key = os.getenv("CODEX_API_KEY", "")
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+
+    def add(name: str, key: str | None, url: str | None, provider_model: str | None):
+        if not key:
+            return
+        resolved_url = (url or "https://api.openai.com/v1").rstrip("/")
+        resolved_model = provider_model or model
+        signature = (key, resolved_url, resolved_model)
+        if signature in seen:
+            return
+        seen.add(signature)
+        providers.append({
+            "name": name,
+            "key": key,
+            "url": resolved_url,
+            "model": resolved_model,
+        })
+
+    add("codex", codex_key, os.getenv("CODEX_BASE_URL", ""), os.getenv("CODEX_MODEL", "") or model)
+    if api_key and (base_url or api_key not in {codex_key, openai_key}):
+        add("explicit", api_key, base_url, model)
+    add("openai", openai_key, os.getenv("OPENAI_BASE_URL", "") or "https://api.openai.com/v1", os.getenv("OPENAI_MODEL", "") or model)
+    return providers
+
+
 def chat_completion(
     messages: list[dict],
     model: str = "gpt-5.5",
@@ -73,39 +102,49 @@ def chat_completion(
     timeout: int | None = None,
     max_retries: int | None = None,
 ) -> str:
-    key = _first_env("CODEX_API_KEY") or api_key or _first_env("OPENAI_API_KEY")
-    if not key:
+    providers = _provider_configs(api_key, base_url, model)
+    if not providers:
         raise ValueError("CODEX_API_KEY/OPENAI_API_KEY 未设置")
 
-    url = _first_env("CODEX_BASE_URL") or base_url or _first_env("OPENAI_BASE_URL", default="https://api.openai.com/v1")
-    model = _first_env("CODEX_MODEL", "OPENAI_MODEL", default=model)
-    endpoint = f"{url.rstrip('/')}/chat/completions"
     request_timeout = timeout or TIMEOUT
     retries = MAX_RETRIES if max_retries is None else max_retries
+    provider_errors = []
 
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
+    for provider_index, provider in enumerate(providers):
+        endpoint = f"{provider['url']}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {provider['key']}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": provider["model"],
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
 
-    for attempt in range(retries + 1):
-        try:
-            resp = requests.post(endpoint, headers=headers, json=payload, timeout=request_timeout)
-            _raise_for_status_with_body(resp)
-            data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
-        except requests.exceptions.RequestException as e:
-            if attempt >= retries or not _is_retryable_error(e):
-                raise
-            logger.warning(
-                f"LLM 请求失败，准备重试 ({attempt + 1}/{retries})：{type(e).__name__}: {_redact_sensitive(str(e))}"
-            )
-            time.sleep(RETRY_DELAY)
+        for attempt in range(retries + 1):
+            try:
+                resp = requests.post(endpoint, headers=headers, json=payload, timeout=request_timeout)
+                _raise_for_status_with_body(resp)
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+            except requests.exceptions.RequestException as e:
+                if attempt < retries and _is_retryable_error(e):
+                    logger.warning(
+                        f"LLM 请求失败，准备重试 ({attempt + 1}/{retries})：provider={provider['name']} {type(e).__name__}: {_redact_sensitive(str(e))}"
+                    )
+                    time.sleep(RETRY_DELAY)
+                    continue
 
-    raise RuntimeError("LLM 请求失败")
+                provider_errors.append(f"{provider['name']}: {type(e).__name__}: {_redact_sensitive(str(e))}")
+                if provider_index < len(providers) - 1:
+                    logger.warning(
+                        f"LLM provider {provider['name']} failed; trying next provider: {type(e).__name__}: {_redact_sensitive(str(e))}"
+                    )
+                    break
+                if len(providers) == 1:
+                    raise
+                raise RuntimeError("LLM 请求失败；providers exhausted: " + " | ".join(provider_errors)) from e
+
+    raise RuntimeError("LLM 请求失败；providers exhausted: " + " | ".join(provider_errors))

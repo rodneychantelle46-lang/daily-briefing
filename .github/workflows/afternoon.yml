@@ -55,8 +55,24 @@ jobs:
           restore-keys: |
             daily-briefing-data-${{ github.ref_name }}-
 
+      - name: Guard late scheduled run
+        id: schedule_guard
+        shell: bash
+        run: |
+          skip=false
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            hhmm="$(TZ=Asia/Shanghai date +%H%M)"
+            current=$((10#$hhmm))
+            if (( current < 1200 || current >= 1215 )); then
+              echo "Scheduled afternoon run started at ${hhmm} Asia/Shanghai, outside 12:00-12:14. OpenClaw owns fallback after 12:15; skipping this late schedule."
+              skip=true
+            fi
+          fi
+          echo "skip=${skip}" >> "$GITHUB_OUTPUT"
+
       - name: Run afternoon briefing
         id: afternoon
+        if: steps.schedule_guard.outputs.skip != 'true'
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
@@ -83,7 +99,7 @@ jobs:
         run: python src/afternoon.py
 
       - name: Save runtime data cache
-        if: success()
+        if: success() && steps.schedule_guard.outputs.skip != 'true'
         uses: actions/cache/save@v4
         with:
           path: data

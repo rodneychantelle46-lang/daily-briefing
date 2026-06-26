@@ -21,6 +21,12 @@ def _first_env(*names: str, default: str = "") -> str:
     return default
 
 
+def _clean_config_value(value: str | None) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lstrip("\ufeff").strip()
+
+
 def _redact_sensitive(text: str) -> str:
     """Keep LLM URL/key out of logs, artifacts, and Telegram failure cards."""
     redacted = text or ""
@@ -66,14 +72,16 @@ def _is_retryable_error(error: requests.exceptions.RequestException) -> bool:
 def _provider_configs(api_key: str | None, base_url: str | None, model: str) -> list[dict]:
     providers = []
     seen = set()
-    codex_key = os.getenv("CODEX_API_KEY", "")
-    openai_key = os.getenv("OPENAI_API_KEY", "")
+    model = _clean_config_value(model)
+    codex_key = _clean_config_value(os.getenv("CODEX_API_KEY", ""))
+    openai_key = _clean_config_value(os.getenv("OPENAI_API_KEY", ""))
 
     def add(name: str, key: str | None, url: str | None, provider_model: str | None):
+        key = _clean_config_value(key)
         if not key:
             return
-        resolved_url = (url or "https://api.openai.com/v1").rstrip("/")
-        resolved_model = provider_model or model
+        resolved_url = (_clean_config_value(url) or "https://api.openai.com/v1").rstrip("/")
+        resolved_model = _clean_config_value(provider_model) or model
         signature = (key, resolved_url, resolved_model)
         if signature in seen:
             return

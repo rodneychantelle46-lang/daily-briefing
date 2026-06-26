@@ -101,6 +101,25 @@ class LlmClientTests(unittest.TestCase):
         self.assertEqual(post.call_args_list[1].args[0], "https://openai.example.com/v1/chat/completions")
         sleep.assert_not_called()
 
+    def test_strips_bom_from_secret_values(self):
+        response = FakeResponse(data={"choices": [{"message": {"content": "clean"}}]})
+        env = {
+            "CODEX_API_KEY": "\ufeffcodex-key",
+            "CODEX_BASE_URL": "\ufeffhttps://codex.example.com/v1",
+            "CODEX_MODEL": "\ufeffgpt-5.5",
+        }
+        with patch("src.utils.llm_client.requests.post", return_value=response) as post, \
+             patch.dict("os.environ", env, clear=True):
+            result = chat_completion(
+                messages=[{"role": "user", "content": "hi"}],
+                max_retries=0,
+            )
+
+        self.assertEqual(result, "clean")
+        self.assertEqual(post.call_args.args[0], "https://codex.example.com/v1/chat/completions")
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer codex-key")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "gpt-5.5")
+
     def test_env_key_passed_as_explicit_is_not_retried_against_default_openai_url(self):
         codex_failure = FakeResponse(status_code=503, text='{"error":"auth_unavailable"}')
         env = {

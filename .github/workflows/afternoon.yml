@@ -127,7 +127,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Notify afternoon failure
-        if: always() && steps.afternoon.outcome == 'failure'
+        if: always() && steps.afternoon.outcome == 'failure' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

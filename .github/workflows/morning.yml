@@ -83,7 +83,9 @@ jobs:
           TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           PYTHONIOENCODING: utf-8
-          ALLOW_DEGRADED_MORNING: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false' }}
+          # Scheduled delivery should send a clearly marked degraded version
+          # instead of failing noisily when LLM providers are unavailable.
+          ALLOW_DEGRADED_MORNING: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false') }}
         run: python src/morning.py
 
       - name: Save runtime data cache

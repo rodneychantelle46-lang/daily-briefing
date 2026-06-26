@@ -95,7 +95,9 @@ jobs:
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           PYTHONIOENCODING: utf-8
           DAILY_BRIEFING_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '' }}
-          ALLOW_DEGRADED_AFTERNOON: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false' }}
+          # Scheduled delivery should send a clearly marked degraded version
+          # instead of failing noisily when LLM providers are unavailable.
+          ALLOW_DEGRADED_AFTERNOON: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false') }}
         run: python src/afternoon.py
 
       - name: Save runtime data cache

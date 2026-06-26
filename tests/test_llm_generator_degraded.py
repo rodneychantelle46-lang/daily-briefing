@@ -73,6 +73,50 @@ class LlmGeneratorDegradedTests(unittest.TestCase):
         self.assertIn("open issues", captured["prompt"])
         self.assertIn("risk", result[0])
 
+    def test_summarize_github_repos_keeps_prompt_compact(self):
+        captured = {}
+        long_readme = "README says " + ("x" * 1200)
+
+        def fake_chat_completion(messages, **kwargs):
+            captured["prompt"] = messages[0]["content"]
+            captured["kwargs"] = kwargs
+            return json.dumps([
+                {
+                    "index": 1,
+                    "summary": "这是一个基于README的项目摘要，说明用途和边界。",
+                    "why": "README和元数据可以支撑判断",
+                    "use_case": "适合团队评估后借鉴自动化流程",
+                    "risk": "需要先验证维护质量",
+                }
+            ], ensure_ascii=False)
+
+        repos = [{
+            "name": "owner/repo",
+            "url": "https://github.com/owner/repo",
+            "description": "Automation agent",
+            "language": "Python",
+            "stars_today": "123 stars today",
+            "stars": 1000,
+            "forks": 42,
+            "license": "MIT",
+            "topics": ["agent", "automation"],
+            "updated_at": "2026-05-01T00:00:00Z",
+            "open_issues_count": 17,
+            "readme_excerpt": long_readme,
+            "deep_read_status": "ok",
+            "deep_read_error": "",
+        }]
+
+        with patch.object(llm_generator, "chat_completion", side_effect=fake_chat_completion):
+            result = llm_generator.summarize_github_repos(repos, api_key="key")
+
+        self.assertEqual(result[0]["generation_status"], "ok")
+        self.assertLessEqual(
+            captured["prompt"].count("x"),
+            llm_generator.GITHUB_README_PROMPT_CHARS + 3,
+        )
+        self.assertEqual(captured["kwargs"]["max_tokens"], llm_generator.GITHUB_SUMMARY_MAX_TOKENS)
+
 
 if __name__ == "__main__":
     unittest.main()

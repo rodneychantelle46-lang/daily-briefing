@@ -11,6 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 HISTORY_PATH = PROJECT_ROOT / "data" / "generated_topics.json"
 GENERATION_STATUS_OK = "ok"
 GENERATION_STATUS_DEGRADED = "degraded"
+GITHUB_README_PROMPT_CHARS = 360
+GITHUB_DESCRIPTION_PROMPT_CHARS = 220
+GITHUB_TOPICS_PROMPT_LIMIT = 8
+GITHUB_SUMMARY_MAX_TOKENS = 900
 
 TOPIC_CONFIGS = {
     "cs_ai_learning": {
@@ -172,7 +176,7 @@ def summarize_github_repos(
             api_key=key,
             base_url=base_url,
             temperature=0.3,
-            max_tokens=1400,
+            max_tokens=GITHUB_SUMMARY_MAX_TOKENS,
         )
         content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         summaries = json.loads(content)
@@ -319,13 +323,21 @@ def _domain_for_learning_point(point: dict) -> str:
     return "ai"
 
 
+def _compact_prompt_text(value: str, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
 def _format_repo_for_prompt(index: int, repo: dict) -> str:
-    topics = ", ".join(repo.get("topics") or []) or "无"
-    readme = (repo.get("readme_excerpt") or "无 README 摘要").replace("\n", " ")[:900]
+    topics = ", ".join((repo.get("topics") or [])[:GITHUB_TOPICS_PROMPT_LIMIT]) or "无"
+    description = _compact_prompt_text(repo.get("description") or "无描述", GITHUB_DESCRIPTION_PROMPT_CHARS)
+    readme = _compact_prompt_text(repo.get("readme_excerpt") or "无 README 摘要", GITHUB_README_PROMPT_CHARS)
     return (
         f"{index}. {repo.get('name', '')} ({repo.get('language', '')})\n"
         f"   URL: {repo.get('url', '')}\n"
-        f"   Trending 描述: {repo.get('description', '无描述')}\n"
+        f"   Trending 描述: {description}\n"
         f"   今日新增星标: {repo.get('stars_today', '?')}；总星标: {repo.get('stars', '?')}；forks: {repo.get('forks', '?')}\n"
         f"   license: {repo.get('license') or '未知'}；topics: {topics}\n"
         f"   最近更新: {repo.get('updated_at') or '未知'}；open issues: {repo.get('open_issues_count', '未知')}\n"

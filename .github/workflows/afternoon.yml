@@ -110,7 +110,7 @@ jobs:
         run: python src/afternoon.py
 
       - name: Save runtime data cache
-        if: success() && steps.schedule_guard.outputs.skip != 'true'
+        if: success() && steps.schedule_guard.outputs.skip != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true')
         uses: actions/cache/save@v4
         with:
           path: data

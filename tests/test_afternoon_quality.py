@@ -120,6 +120,28 @@ class AfternoonQualityTests(unittest.TestCase):
         self.assertTrue(payload["quality_summary"]["send_blocked"])
         self.assertEqual(payload["quality_summary"]["tip_degraded_count"], 1)
 
+    def test_dry_run_skips_telegram_and_sent_marker(self):
+        config = {
+            "llm": {"model": "gpt-5.5", "api_key": "key", "base_url": ""},
+            "publisher": {"telegram": {}},
+        }
+        with patch.dict(os.environ, {"DAILY_BRIEFING_DRY_RUN": "1"}, clear=False), \
+             patch.object(afternoon, "load_dotenv"), \
+             patch.object(afternoon, "load_config", return_value=config), \
+             patch.object(afternoon, "already_sent", return_value=False), \
+             patch.object(afternoon, "generate_tip", side_effect=[OK_TIP, OK_TIP, OK_TIP]), \
+             patch.object(afternoon, "fetch_trending_repos", return_value=[OK_REPO]), \
+             patch.object(afternoon, "summarize_github_repos", return_value=[OK_REPO]), \
+             patch.object(afternoon, "write_afternoon_artifact") as artifact, \
+             patch.object(afternoon, "send_telegram_brief") as send, \
+             patch.object(afternoon, "mark_sent") as mark_sent:
+            afternoon.main()
+
+        send.assert_not_called()
+        mark_sent.assert_not_called()
+        artifact.assert_called_once()
+        self.assertTrue(artifact.call_args.kwargs["dry_run"])
+
     def test_env_can_explicitly_allow_degraded_afternoon(self):
         with patch.dict(os.environ, {"ALLOW_DEGRADED_AFTERNOON": "true"}):
             self.assertTrue(afternoon._allow_degraded_afternoon({"llm": {}}))

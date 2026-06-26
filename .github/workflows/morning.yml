@@ -23,6 +23,14 @@ on:
         options:
           - "false"
           - "true"
+      dry_run:
+        description: "Generate and upload artifacts only; do not send Telegram or mark sent"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 jobs:
   morning:
@@ -85,6 +93,7 @@ jobs:
           PYTHONIOENCODING: utf-8
           # Scheduled delivery should send a clearly marked degraded version
           # instead of failing noisily when LLM providers are unavailable.
+          DAILY_BRIEFING_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '' }}
           ALLOW_DEGRADED_MORNING: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false') }}
         run: python src/morning.py
 

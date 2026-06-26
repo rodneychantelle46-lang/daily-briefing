@@ -1,7 +1,11 @@
+import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import src.morning as morning
 from src.morning import _allow_degraded_morning, _is_llm_degraded
 from src.processors import llm_selector
 from src.processors.llm_selector import select_articles
@@ -53,6 +57,23 @@ class MorningDegradedTests(unittest.TestCase):
             self.assertTrue(_allow_degraded_morning({"llm": {}}))
         with patch.dict(os.environ, {"ALLOW_DEGRADED_MORNING": "false"}):
             self.assertFalse(_allow_degraded_morning({"llm": {"allow_degraded_morning": True}}))
+
+    def test_dry_run_env_is_recorded_in_morning_audit(self):
+        with patch.dict(os.environ, {"DAILY_BRIEFING_DRY_RUN": "1"}):
+            self.assertTrue(morning._dry_run_enabled())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(morning, "PROJECT_ROOT", Path(tmpdir)):
+                path = morning.write_audit_artifact(
+                    "2026年05月03日",
+                    fetched_articles=[],
+                    selected_articles=[],
+                    source_quality={},
+                    dry_run=True,
+                )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertTrue(payload["quality_summary"]["dry_run"])
 
     def test_select_articles_hydrates_by_index_without_urls_in_prompt(self):
         articles = []

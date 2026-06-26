@@ -41,6 +41,7 @@ def write_afternoon_artifact(
     date_str: str,
     send_blocked: bool = False,
     aborted_reason: str = "",
+    dry_run: bool = False,
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -55,6 +56,7 @@ def write_afternoon_artifact(
             github_repos,
             send_blocked=send_blocked,
             aborted_reason=aborted_reason,
+            dry_run=dry_run,
         ),
         "card": card,
         "tips": tips,
@@ -72,6 +74,7 @@ def build_afternoon_quality_summary(
     github_repos: list[dict],
     send_blocked: bool = False,
     aborted_reason: str = "",
+    dry_run: bool = False,
 ) -> dict:
     tip_degraded_count = sum(1 for tip in tips if _item_degraded(tip))
     github_degraded_count = sum(1 for repo in github_repos if _item_degraded(repo) or repo.get("deep_read_status") == GENERATION_STATUS_DEGRADED)
@@ -88,6 +91,7 @@ def build_afternoon_quality_summary(
         "github_link_count": github_link_count,
         "send_blocked": send_blocked,
         "aborted_reason": aborted_reason,
+        "dry_run": dry_run,
         "generation_errors": _generation_error_summary(tips, github_repos),
         "card": _summarize_card(card),
     }
@@ -148,6 +152,10 @@ def _allow_degraded_afternoon(config: dict) -> bool:
     llm_config = root_config.get("llm", {})
     value = llm_config.get("allow_degraded_afternoon", root_config.get("allow_degraded_afternoon", False))
     return _truthy(value)
+
+
+def _dry_run_enabled() -> bool:
+    return _truthy(os.getenv("DAILY_BRIEFING_DRY_RUN", ""))
 
 
 def _truthy(value) -> bool:
@@ -213,6 +221,7 @@ def main():
 
     llm_degraded = _afternoon_degraded(tips, repos)
     allow_degraded = _allow_degraded_afternoon(config)
+    dry_run = _dry_run_enabled()
     aborted_reason = ""
     send_blocked = False
     if llm_degraded and not allow_degraded:
@@ -228,11 +237,16 @@ def main():
         date_str,
         send_blocked=send_blocked,
         aborted_reason=aborted_reason,
+        dry_run=dry_run,
     )
 
     if send_blocked:
         logger.error(aborted_reason)
         sys.exit(2)
+
+    if dry_run:
+        logger.warning("DAILY_BRIEFING_DRY_RUN=1，跳过 Telegram 推送和发送记录写入")
+        return
 
     # 4. 推送
     logger.info("--- 步骤 6: Telegram 推送 ---")

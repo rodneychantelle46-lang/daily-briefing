@@ -32,6 +32,14 @@ on:
         options:
           - "false"
           - "true"
+      dry_run:
+        description: "Generate and upload artifacts only; do not send Telegram or mark sent"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 jobs:
   afternoon:
@@ -95,6 +103,7 @@ jobs:
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           PYTHONIOENCODING: utf-8
           DAILY_BRIEFING_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '' }}
+          DAILY_BRIEFING_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '' }}
           # Scheduled delivery should send a clearly marked degraded version
           # instead of failing noisily when LLM providers are unavailable.
           ALLOW_DEGRADED_AFTERNOON: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false') }}

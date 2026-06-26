@@ -118,6 +118,10 @@ def _truthy(value) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _dry_run_enabled() -> bool:
+    return _truthy(os.getenv("DAILY_BRIEFING_DRY_RUN", ""))
+
+
 def write_audit_artifact(
     date_str: str,
     fetched_articles: list[dict],
@@ -127,6 +131,7 @@ def write_audit_artifact(
     card: dict | None = None,
     llm_degraded: bool = False,
     aborted_reason: str = "",
+    dry_run: bool = False,
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +146,7 @@ def write_audit_artifact(
             "source_count": len(summarize_source_counts(fetched_articles)),
             "llm_degraded": llm_degraded,
             "aborted_reason": aborted_reason,
+            "dry_run": dry_run,
             "selection_errors": _selection_error_summary(selected_articles),
             "link_validation": _summarize_link_reports(link_reports),
             "card": _summarize_card(card or {}),
@@ -349,6 +355,7 @@ def main():
 
     llm_degraded = any(_is_llm_degraded(a) for a in all_selected)
     allow_degraded_morning = _allow_degraded_morning(config)
+    dry_run = _dry_run_enabled()
     date_str = local_now().strftime("%Y年%m月%d日")
     if llm_degraded and not allow_degraded_morning:
         aborted_reason = "选稿模型异常，已停止发送正式晨报，避免把降级候选伪装成编辑判断。"
@@ -360,6 +367,7 @@ def main():
             link_reports,
             llm_degraded=True,
             aborted_reason=aborted_reason,
+            dry_run=dry_run,
         )
         logger.error(aborted_reason)
         sys.exit(2)
@@ -406,7 +414,12 @@ def main():
         link_reports,
         card=card,
         llm_degraded=llm_degraded,
+        dry_run=dry_run,
     )
+
+    if dry_run:
+        logger.warning("DAILY_BRIEFING_DRY_RUN=1，跳过 Telegram 推送、发送记录和已读文章写入")
+        return
 
     # 12. 推送
     logger.info("--- 步骤 13: Telegram 推送 ---")

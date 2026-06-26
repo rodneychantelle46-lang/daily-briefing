@@ -116,6 +116,36 @@ class LlmGeneratorDegradedTests(unittest.TestCase):
             llm_generator.GITHUB_README_PROMPT_CHARS + 3,
         )
         self.assertEqual(captured["kwargs"]["max_tokens"], llm_generator.GITHUB_SUMMARY_MAX_TOKENS)
+        self.assertEqual(captured["kwargs"]["timeout"], llm_generator.GITHUB_SUMMARY_TIMEOUT)
+        self.assertEqual(captured["kwargs"]["max_retries"], 0)
+
+    def test_summarize_github_repos_uses_metadata_summary_when_llm_times_out(self):
+        repos = [{
+            "name": "owner/repo",
+            "url": "https://github.com/owner/repo",
+            "description": "A browser automation toolkit",
+            "language": "Python",
+            "stars_today": "123 stars today",
+            "stars": 1000,
+            "forks": 42,
+            "license": "MIT",
+            "topics": ["automation", "agent"],
+            "updated_at": "2026-05-01T00:00:00Z",
+            "open_issues_count": 17,
+            "readme_excerpt": "README says this project automates browser workflows.",
+            "deep_read_status": "ok",
+            "deep_read_error": "",
+        }]
+
+        with patch.object(llm_generator, "chat_completion", side_effect=TimeoutError("slow")):
+            result = llm_generator.summarize_github_repos(repos, api_key="key")
+
+        self.assertEqual(result[0]["generation_status"], "ok")
+        self.assertEqual(result[0]["generation_error"], "")
+        self.assertEqual(result[0]["generation_source"], "github_metadata")
+        self.assertIn("browser automation", result[0]["summary"])
+        self.assertIn("automation", result[0]["why"])
+        self.assertIn("维护", result[0]["risk"])
 
 
 if __name__ == "__main__":

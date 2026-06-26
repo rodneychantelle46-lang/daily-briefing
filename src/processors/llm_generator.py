@@ -15,6 +15,7 @@ GITHUB_README_PROMPT_CHARS = 360
 GITHUB_DESCRIPTION_PROMPT_CHARS = 220
 GITHUB_TOPICS_PROMPT_LIMIT = 8
 GITHUB_SUMMARY_MAX_TOKENS = 900
+GITHUB_SUMMARY_TIMEOUT = 45
 
 TOPIC_CONFIGS = {
     "cs_ai_learning": {
@@ -177,6 +178,8 @@ def summarize_github_repos(
             base_url=base_url,
             temperature=0.3,
             max_tokens=GITHUB_SUMMARY_MAX_TOKENS,
+            timeout=GITHUB_SUMMARY_TIMEOUT,
+            max_retries=0,
         )
         content = content.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         summaries = json.loads(content)
@@ -200,8 +203,8 @@ def summarize_github_repos(
         logger.info(f"GitHub 项目摘要生成成功: {len(summaries)} 条")
         return repos
     except Exception as e:
-        logger.warning(f"GitHub 摘要生成失败 ({e})，按降级处理")
-        return _mark_github_degraded(repos, f"github_summary_failed: {type(e).__name__}: {e}")
+        logger.warning(f"GitHub 摘要 LLM 增强失败 ({e})，改用 GitHub 元数据摘要")
+        return _apply_metadata_github_summaries(repos)
 
 
 def _normalize_tip_result(result: dict, section_name: str) -> dict:
@@ -368,6 +371,48 @@ def _mark_github_degraded(repos: list[dict], error: str) -> list[dict]:
         repo.setdefault("why", "摘要生成或深读链路不可用，本期不应作为正式判断发送。")
         repo.setdefault("use_case", "等待下一次自动生成，或先修复 GitHub/API/LLM 链路。")
     return repos
+
+
+def _apply_metadata_github_summaries(repos: list[dict]) -> list[dict]:
+    for repo in repos:
+        name = repo.get("name") or "unknown/repo"
+        project = name.split("/")[-1]
+        language = repo.get("language") or "开源"
+        description = _compact_prompt_text(repo.get("description") or repo.get("readme_excerpt") or "README 信息有限", 70)
+        topic = _first_topic(repo)
+        repo["summary"] = f"{project} 是一个 {language} 项目，{description}"
+        repo["why"] = _metadata_why(repo, topic)
+        repo["use_case"] = f"适合先围绕 {topic} 场景做技术调研，读 README 和示例后再小范围试用。"
+        repo["risk"] = _metadata_risk(repo)
+        repo["generation_status"] = GENERATION_STATUS_OK
+        repo["generation_error"] = ""
+        repo["generation_source"] = "github_metadata"
+    return repos
+
+
+def _first_topic(repo: dict) -> str:
+    topics = repo.get("topics") or []
+    if topics:
+        return str(topics[0])
+    return repo.get("language") or "开源工具"
+
+
+def _metadata_why(repo: dict, topic: str) -> str:
+    stars_today = str(repo.get("stars_today") or "").strip()
+    stars = repo.get("stars")
+    updated_at = str(repo.get("updated_at") or "未知时间")[:10]
+    heat = stars_today or (f"总星标 {stars}" if stars else "Trending 热度上升")
+    return f"{heat}，主题聚焦 {topic}，最近更新 {updated_at}，值得快速扫一眼。"
+
+
+def _metadata_risk(repo: dict) -> str:
+    license_name = repo.get("license") or ""
+    issues = repo.get("open_issues_count")
+    if not license_name:
+        return "license 不明确，采用前要先确认授权边界。"
+    if isinstance(issues, int) and issues > 100:
+        return f"open issues 有 {issues} 个，落地前要评估维护压力。"
+    return "仍需确认维护节奏、issue 质量和与你的技术栈是否匹配。"
 
 
 def _load_history(topic_type: str) -> list[str]:

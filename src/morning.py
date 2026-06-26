@@ -98,6 +98,26 @@ def _selection_error_summary(selected_articles: list[dict]) -> dict:
     return summary
 
 
+def _allow_degraded_morning(config: dict) -> bool:
+    for env_name in ("ALLOW_DEGRADED_MORNING", "MORNING_ALLOW_DEGRADED"):
+        value = os.getenv(env_name)
+        if value is not None:
+            return _truthy(value)
+
+    root_config = config if isinstance(config, dict) else {}
+    llm_config = root_config.get("llm", {})
+    value = llm_config.get("allow_degraded_morning", root_config.get("allow_degraded_morning", False))
+    return _truthy(value)
+
+
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def write_audit_artifact(
     date_str: str,
     fetched_articles: list[dict],
@@ -328,7 +348,7 @@ def main():
     source_quality = update_source_quality(fetched_for_quality, all_selected, source_quality)
 
     llm_degraded = any(_is_llm_degraded(a) for a in all_selected)
-    allow_degraded_morning = bool(llm_config.get("allow_degraded_morning", False))
+    allow_degraded_morning = _allow_degraded_morning(config)
     date_str = local_now().strftime("%Y年%m月%d日")
     if llm_degraded and not allow_degraded_morning:
         aborted_reason = "选稿模型异常，已停止发送正式晨报，避免把降级候选伪装成编辑判断。"

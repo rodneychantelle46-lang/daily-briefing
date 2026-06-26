@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.morning import _is_llm_degraded
+from src.morning import _allow_degraded_morning, _is_llm_degraded
 from src.processors import llm_selector
 from src.processors.llm_selector import select_articles
 from src.publishers.feishu import build_morning_card
@@ -47,6 +47,12 @@ class MorningDegradedTests(unittest.TestCase):
         content = "\n".join(e.get("content", "") for e in card["elements"])
         self.assertIn("⚠️ 选稿模型异常", content)
         self.assertEqual(content.count("选稿模型异常"), 1)
+
+    def test_env_can_explicitly_allow_degraded_morning(self):
+        with patch.dict(os.environ, {"ALLOW_DEGRADED_MORNING": "true"}):
+            self.assertTrue(_allow_degraded_morning({"llm": {}}))
+        with patch.dict(os.environ, {"ALLOW_DEGRADED_MORNING": "false"}):
+            self.assertFalse(_allow_degraded_morning({"llm": {"allow_degraded_morning": True}}))
 
     def test_select_articles_hydrates_by_index_without_urls_in_prompt(self):
         articles = []

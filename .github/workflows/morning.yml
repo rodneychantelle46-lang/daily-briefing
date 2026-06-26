@@ -14,6 +14,15 @@ on:
     # 7:20 AM CST (UTC+8) = 23:20 UTC (previous day)
     - cron: '20 23 * * *'
   workflow_dispatch:  # 手动触发
+    inputs:
+      allow_degraded:
+        description: "Manual override: send a clearly marked degraded morning briefing if LLM selection fails"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   morning:
@@ -58,6 +67,7 @@ jobs:
           TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           PYTHONIOENCODING: utf-8
+          ALLOW_DEGRADED_MORNING: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false' }}
         run: python src/morning.py
 
       - name: Save runtime data cache

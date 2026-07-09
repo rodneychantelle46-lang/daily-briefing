@@ -12,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.processors.llm_generator import generate_tip, summarize_github_repos
 from src.fetchers.github_fetcher import fetch_trending_repos
+from src.fetchers.last30days_fetcher import load_last30days_findings
 from src.publishers.feishu import build_afternoon_card
 from src.publishers.telegram import send_telegram_brief
 from src.utils.logger import get_logger
@@ -42,6 +43,7 @@ def write_afternoon_artifact(
     send_blocked: bool = False,
     aborted_reason: str = "",
     dry_run: bool = False,
+    last30days_items: list[dict] | None = None,
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -57,10 +59,12 @@ def write_afternoon_artifact(
             send_blocked=send_blocked,
             aborted_reason=aborted_reason,
             dry_run=dry_run,
+            last30days_items=last30days_items,
         ),
         "card": card,
         "tips": tips,
         "github_repos": github_repos,
+        "last30days_items": last30days_items or [],
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -75,6 +79,7 @@ def build_afternoon_quality_summary(
     send_blocked: bool = False,
     aborted_reason: str = "",
     dry_run: bool = False,
+    last30days_items: list[dict] | None = None,
 ) -> dict:
     tip_degraded_count = sum(1 for tip in tips if _item_degraded(tip))
     github_degraded_count = sum(1 for repo in github_repos if _item_degraded(repo) or repo.get("deep_read_status") == GENERATION_STATUS_DEGRADED)
@@ -84,6 +89,7 @@ def build_afternoon_quality_summary(
         "tip_count": len(tips),
         "tip_degraded_count": tip_degraded_count,
         "github_repo_count": len(github_repos),
+        "last30days_count": len(last30days_items or []),
         "github_degraded_count": github_degraded_count,
         "fallback_degraded_count": tip_degraded_count + github_degraded_count,
         "link_count": tip_link_count + github_link_count,
@@ -214,10 +220,18 @@ def main():
     else:
         repos = [_github_empty_degraded_repo()]
 
+    logger.info("--- 步骤 5: 读取 last30days 旁路情报 ---")
+    last30days_items = load_last30days_findings(max_items=3)
+
     # 3. 组装飞书卡片
-    logger.info("--- 步骤 5: 组装飞书卡片 ---")
+    logger.info("--- 步骤 6: 组装飞书卡片 ---")
     date_str = local_now().strftime("%Y年%m月%d日")
-    card = build_afternoon_card(tips=tips, date_str=date_str, github_repos=repos)
+    card = build_afternoon_card(
+        tips=tips,
+        date_str=date_str,
+        github_repos=repos,
+        last30days_items=last30days_items,
+    )
 
     llm_degraded = _afternoon_degraded(tips, repos)
     allow_degraded = _allow_degraded_afternoon(config)
@@ -238,6 +252,7 @@ def main():
         send_blocked=send_blocked,
         aborted_reason=aborted_reason,
         dry_run=dry_run,
+        last30days_items=last30days_items,
     )
 
     if send_blocked:
@@ -249,7 +264,7 @@ def main():
         return
 
     # 4. 推送
-    logger.info("--- 步骤 6: Telegram 推送 ---")
+    logger.info("--- 步骤 7: Telegram 推送 ---")
     telegram_config = config.get("publisher", {}).get("telegram", {})
     sent = send_telegram_brief(card, telegram_config)
     if not sent:

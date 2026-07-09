@@ -21,11 +21,21 @@ WEATHER_CODE_TEXT = {
 }
 
 
-def fetch_weather(city: str, api_key: str = None, api_host: str = None, location: str = None) -> dict:
+def fetch_weather(
+    city: str,
+    api_key: str = None,
+    api_host: str = None,
+    location: str = None,
+    fallback_location: str = None,
+) -> dict:
     key = api_key or os.getenv("QWEATHER_API_KEY", "")
     if not key:
         logger.info("QWEATHER_API_KEY 未设置，改用 Open-Meteo / wttr.in 无 Key 天气源")
-        return _fetch_open_meteo(city=city, location=location) or _fetch_wttr(city) or _fallback(city)
+        return (
+            _fetch_open_meteo(city=city, location=location, fallback_location=fallback_location)
+            or _fetch_wttr(city)
+            or _fallback(city)
+        )
 
     host = api_host or os.getenv("QWEATHER_API_HOST", DEFAULT_API_HOST)
     headers = {"X-QW-Api-Key": key}
@@ -44,7 +54,11 @@ def fetch_weather(city: str, api_key: str = None, api_host: str = None, location
         locations = geo_data.get("location", [])
         if not locations:
             logger.warning(f"未找到城市: {city}")
-            return _fetch_open_meteo(city=city, location=location) or _fetch_wttr(city) or _fallback(city)
+            return (
+                _fetch_open_meteo(city=city, location=location, fallback_location=fallback_location)
+                or _fetch_wttr(city)
+                or _fallback(city)
+            )
         location_id = locations[0]["id"]
         city_name = locations[0].get("name", city)
 
@@ -93,13 +107,21 @@ def fetch_weather(city: str, api_key: str = None, api_host: str = None, location
 
     except requests.exceptions.Timeout:
         logger.warning("天气 API 请求超时，改用无 Key 天气源")
-        return _fetch_open_meteo(city=city, location=location) or _fetch_wttr(city) or _fallback(city)
+        return (
+            _fetch_open_meteo(city=city, location=location, fallback_location=fallback_location)
+            or _fetch_wttr(city)
+            or _fallback(city)
+        )
     except Exception as e:
         logger.warning(f"天气获取失败: {e}，改用无 Key 天气源")
-        return _fetch_open_meteo(city=city, location=location) or _fetch_wttr(city) or _fallback(city)
+        return (
+            _fetch_open_meteo(city=city, location=location, fallback_location=fallback_location)
+            or _fetch_wttr(city)
+            or _fallback(city)
+        )
 
 
-def _fetch_open_meteo(city: str, location: str = None) -> dict | None:
+def _fetch_open_meteo(city: str, location: str = None, fallback_location: str = None) -> dict | None:
     try:
         query = location or city
         geo_resp = requests.get(
@@ -110,8 +132,8 @@ def _fetch_open_meteo(city: str, location: str = None) -> dict | None:
         geo_resp.raise_for_status()
         geo_data = geo_resp.json()
         results = geo_data.get("results") or []
-        if not results and city != "南京":
-            return _fetch_open_meteo("南京", "Nanjing")
+        if not results and fallback_location:
+            return _fetch_open_meteo(city, fallback_location, "")
         if not results:
             return None
         loc = results[0]
@@ -148,6 +170,8 @@ def _fetch_open_meteo(city: str, location: str = None) -> dict | None:
         return result
     except Exception as e:
         logger.warning(f"Open-Meteo 天气获取失败: {e}")
+        if fallback_location and (location or city) != fallback_location:
+            return _fetch_open_meteo(city, fallback_location, "")
         return None
 
 

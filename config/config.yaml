@@ -1,6 +1,6 @@
 user:
-  city: "鼓楼"
-  city_adm: "南京"
+  city: "浦东新区"
+  city_adm: "上海市"
 
 interests:
   - name: "AI"
@@ -79,6 +79,20 @@ weather:
   provider: "qweather"
   api_key: "${QWEATHER_API_KEY}"
   api_host: "jt52qd3e2a.re.qweatherapi.com"
+  fallback_location: "Shanghai"
 
 dedup:
   retention_days: 7
+
+# P7-20260709-afternoon-semantic-dedup
+# 午报去重不是单词黑名单：运行时读取历史发送内容，抽取已讲主题并注入 LLM，按语义避重。
+afternoon_topic_dedup:
+  enabled: true
+  mode: semantic_history_guard
+  history_limit: 60
+  explicit_seen_topics:
+    - 宜家效应
+    - IKEA effect
+
+# P7-20260709-weather-pudong
+# 晨报天气固定上海市浦东新区。

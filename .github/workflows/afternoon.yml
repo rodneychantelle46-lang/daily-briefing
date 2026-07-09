@@ -78,6 +78,33 @@ jobs:
           fi
           echo "skip=${skip}" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Python 3.12 for last30days sidecar
+        if: steps.schedule_guard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Collect last30days sidecar intelligence
+        if: steps.schedule_guard.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LAST30DAYS_TIMEOUT_SECONDS: "60"
+        shell: bash
+        run: |
+          python -m pip install PyYAML requests
+          rm -rf .tmp/last30days-skill
+          mkdir -p .tmp
+          git clone --depth 1 https://github.com/mvanhorn/last30days-skill.git .tmp/last30days-skill
+          LAST30DAYS_SKILL_DIR="$PWD/.tmp/last30days-skill" python tools/collect_last30days.py
+
+      - name: Set up Python 3.11 for briefing
+        if: steps.schedule_guard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Run afternoon briefing
         id: afternoon
         if: steps.schedule_guard.outputs.skip != 'true'
@@ -104,9 +131,8 @@ jobs:
           PYTHONIOENCODING: utf-8
           DAILY_BRIEFING_FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '' }}
           DAILY_BRIEFING_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '' }}
-          # Scheduled delivery should send a clearly marked degraded version
-          # instead of failing noisily when LLM providers are unavailable.
-          ALLOW_DEGRADED_AFTERNOON: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false') }}
+          # The generator is a quality gate: fail closed instead of sending degraded picks.
+          ALLOW_DEGRADED_AFTERNOON: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_degraded == 'true' && 'true' || 'false' }}
         run: python src/afternoon.py
 
       - name: Save runtime data cache

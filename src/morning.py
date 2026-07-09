@@ -18,6 +18,7 @@ from src.fetchers.weather_fetcher import fetch_weather
 from src.fetchers.quote_fetcher import fetch_quote
 from src.fetchers.podcast_fetcher import fetch_podcast
 from src.fetchers.bilibili_fetcher import fetch_bilibili_videos, fetch_popular_videos
+from src.fetchers.last30days_fetcher import load_last30days_findings
 from src.processors.llm_selector import select_articles
 from src.publishers.feishu import build_morning_card
 from src.publishers.telegram import send_telegram_brief
@@ -132,6 +133,7 @@ def write_audit_artifact(
     llm_degraded: bool = False,
     aborted_reason: str = "",
     dry_run: bool = False,
+    last30days_items: list[dict] | None = None,
 ) -> Path:
     artifacts_dir = PROJECT_ROOT / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -147,6 +149,7 @@ def write_audit_artifact(
             "llm_degraded": llm_degraded,
             "aborted_reason": aborted_reason,
             "dry_run": dry_run,
+            "last30days_count": len(last30days_items or []),
             "selection_errors": _selection_error_summary(selected_articles),
             "link_validation": _summarize_link_reports(link_reports),
             "card": _summarize_card(card or {}),
@@ -375,11 +378,15 @@ def main():
     # 8. 天气
     logger.info("--- 步骤 9: 获取天气 ---")
     city = config.get("user", {}).get("city", "鼓楼")
+    city_adm = config.get("user", {}).get("city_adm", "")
     weather_cfg = config.get("weather", {})
+    weather_location = f"{city_adm}{city}" if city_adm else city
     weather = fetch_weather(
         city,
         api_key=weather_cfg.get("api_key", ""),
         api_host=weather_cfg.get("api_host", ""),
+        location=weather_location,
+        fallback_location=weather_cfg.get("fallback_location", ""),
     )
 
     # 9. 每日一句
@@ -391,8 +398,11 @@ def main():
     podcast_sources = rss_sources.get("podcast", [])
     podcast = fetch_podcast(podcast_sources)
 
+    logger.info("--- 步骤 12: 读取 last30days 旁路情报 ---")
+    last30days_items = load_last30days_findings(max_items=3)
+
     # 11. 组装飞书卡片
-    logger.info("--- 步骤 12: 组装飞书卡片 ---")
+    logger.info("--- 步骤 13: 组装飞书卡片 ---")
     card = build_morning_card(
         general_news=general_top5,
         interest_news=interest_top5,
@@ -403,6 +413,7 @@ def main():
         podcast=podcast,
         date_str=date_str,
         llm_degraded=llm_degraded,
+        last30days_items=last30days_items,
     )
 
     write_card_artifact(card, date_str)
@@ -415,6 +426,7 @@ def main():
         card=card,
         llm_degraded=llm_degraded,
         dry_run=dry_run,
+        last30days_items=last30days_items,
     )
 
     if dry_run:
@@ -422,7 +434,7 @@ def main():
         return
 
     # 12. 推送
-    logger.info("--- 步骤 13: Telegram 推送 ---")
+    logger.info("--- 步骤 14: Telegram 推送 ---")
     telegram_config = config.get("publisher", {}).get("telegram", {})
     sent = send_telegram_brief(card, telegram_config)
     if not sent:
@@ -431,7 +443,7 @@ def main():
     mark_sent("morning", send_date, metadata={"date": date_str})
 
     # 13. 记录已推送文章
-    logger.info("--- 步骤 14: 记录已推送 ---")
+    logger.info("--- 步骤 15: 记录已推送 ---")
     mark_seen(all_selected, seen_data)
     seen_data = cleanup_old(seen_data, config.get("dedup", {}).get("retention_days", 7))
     save_seen(seen_data)

@@ -139,6 +139,21 @@ def _format_article_item(index: int, article: dict) -> str:
     return line
 
 
+def _format_last30days_item(index: int, item: dict) -> str:
+    title = item.get("title", "")
+    url = item.get("url", "")
+    source = item.get("source", "")
+    label = item.get("label") or item.get("topic", "")
+    summary = item.get("summary", "")
+
+    meta_parts = [part for part in [label, source] if part]
+    meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
+    line = f"{index}. [{title}]({url}){meta}\n" if url else f"{index}. {title}{meta}\n"
+    if summary:
+        line += f"   - 观察：{summary}\n"
+    return line
+
+
 def build_morning_card(
     general_news: list[dict],
     interest_news: dict[str, list[dict]],
@@ -150,6 +165,7 @@ def build_morning_card(
     date_str: str = "",
     llm_degraded: bool = False,
     degrade_note: str = "",
+    last30days_items: list[dict] = None,
 ) -> dict:
     elements = []
 
@@ -187,6 +203,13 @@ def build_morning_card(
         for i, a in enumerate(news_list, 1):
             interest_md += _format_article_item(i, a)
         elements.append({"tag": "markdown", "content": interest_md})
+        elements.append({"tag": "hr"})
+
+    if last30days_items:
+        l30_md = "**━━ AI 情报 / 社区热议 ━━**\n"
+        for i, item in enumerate(last30days_items[:3], 1):
+            l30_md += _format_last30days_item(i, item)
+        elements.append({"tag": "markdown", "content": l30_md})
         elements.append({"tag": "hr"})
 
     # B站视频推荐
@@ -230,6 +253,7 @@ def build_afternoon_card(
     tips: list[dict],
     date_str: str = "",
     github_repos: list[dict] = None,
+    last30days_items: list[dict] = None,
 ) -> dict:
     elements = []
     github_repos = github_repos or []
@@ -284,6 +308,13 @@ def build_afternoon_card(
                 if url:
                     tip_md += f"\n- [{platform} · {title}]({url})"
         elements.append({"tag": "markdown", "content": tip_md})
+        elements.append({"tag": "hr"})
+
+    if last30days_items:
+        l30_md = "**━━ AI 情报 / 社区热议 ━━**\n"
+        for i, item in enumerate(last30days_items[:3], 1):
+            l30_md += _format_last30days_item(i, item)
+        elements.append({"tag": "markdown", "content": l30_md})
         elements.append({"tag": "hr"})
 
     # GitHub 热门项目

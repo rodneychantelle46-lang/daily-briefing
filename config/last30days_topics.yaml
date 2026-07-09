@@ -1,0 +1,17 @@
+enabled: true
+lookback_days: 30
+max_items: 5
+sources:
+  - hackernews
+  - github
+  - reddit
+topics:
+  - name: "AI agents"
+    label: "AI Agent 社区热议"
+    query: "AI agents agentic workflows"
+  - name: "OpenAI Codex"
+    label: "Codex / 编程智能体"
+    query: "OpenAI Codex coding agent"
+  - name: "Claude Code"
+    label: "Claude Code 开发者反馈"
+    query: "Claude Code agent"

@@ -11,9 +11,8 @@ concurrency:
 
 on:
   schedule:
-    # 12:07 PM CST (UTC+8) = 04:07 UTC.
-    # Avoid GitHub Actions scheduled-run congestion around the top of the hour.
-    - cron: '7 4 * * *'
+    # 12:00 PM CST (UTC+8) = 04:00 UTC; keep the schedule aligned with config and fallback.
+    - cron: '0 4 * * *'
   workflow_dispatch:  # 手动触发
     inputs:
       force_resend:
